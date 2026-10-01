@@ -404,9 +404,8 @@ confidence intervals are in
 - **Class labels.** Boxes carry no class label. Per-box classes can be passed
   to the Python converters (`category_ids`). COCO and YOLO files can be
   exported but not imported.
-- **napari 0.6.x.** On napari 0.7 and later a 2D box layer keeps its
-  rectangles in 3D display. On napari 0.6.x a Shapes layer cannot be switched
-  back from 3D display, and plain Shapes layers behave the same.
+- **napari 0.6.x.** Switching a 2D image between 2D and 3D display fails in
+  napari 0.6.x for any Shapes layer. Use napari 0.7 or later if you need this.
 - **Undo.** Each undo step stores a copy of all boxes.
 - **Threads.** Change boxes from the main (Qt) thread.
 
