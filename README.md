@@ -385,8 +385,8 @@ confidence intervals are in
 
 ## Good to know
 
-- **Dimensions.** Boxes have two or three spatial axes. Time and channel axes
-  are not part of a box.
+- **Dimensions.** Boxes are 2D or 3D and apply to all channels of an image.
+  Time series are not tested yet.
 - **Setting the depth.** New rectangles span the full depth, so most boxes only
   need trimming. The read-only orthogonal views show the depth but do not edit
   it. To trim it with the mouse, show the depth axis in the editable viewer (for
