@@ -26,7 +26,7 @@ need a note:
   the archived `src/` named in `plugin_file`. The released `src/` differs from
   it in four functions and in the control panel's window title. Only the error
   branch added to `_incremental_shape_update` lies on the timed path, and it
-  runs only when the in-place edit raises (see the README).
+  runs only when the in-place edit raises (see `docs/benchmark.md`).
 - `thumbnails` applies to TurboBox only. napari-bbox's thumbnail behaviour
   follows from `legacy_sync`: with `per_box` and `full`, its layers update
   their thumbnails on every write (napari's default).
@@ -38,7 +38,7 @@ need a note:
   `paper_results/provenance/benchmarked_code_state_20260925.tgz`, and its diff
   against 1b2ba33 is `paper_results/provenance/code_state_vs_1b2ba33.patch`.
   The archive is the complete record of the measured code. The patch ties it to
-  1b2ba33 for the authors. The README describes how the published code differs
+  1b2ba33 for the authors. `docs/benchmark.md` describes how the published code differs
   from it.
 - Two lines of the freeze cannot be installed from this file with
   `pip install -r`: napari-bbox (the local `file://` copy described above) and
