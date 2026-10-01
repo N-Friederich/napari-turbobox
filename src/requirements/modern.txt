@@ -1,0 +1,23 @@
+# Benchmark environment of the final benchmark run (25 Sep 2026), both tools in one environment
+# (paper_benchmarks/final_run/run_final.sh). Python 3.12.13 (conda), macOS 27.0, Apple M2 Pro.
+# Full pip freeze: paper_results/environment/pip_freeze_benchmark_env.txt
+# napari-TurboBox is not installed in this environment; the benchmark imports it from
+# src/ (PYTHONPATH=src).
+napari==0.7.0
+napari-bbox==0.1.1  # the freeze shows a local copy of the PyPI 0.1.1 sdist
+numpy==2.4.3
+vispy==0.16.1
+bermuda==0.1.7  # napari's compiled triangulation backend (napari[optional])
+PyQt6==6.10.2
+PyQt6-Qt6==6.10.2
+PyQt6-sip==13.11.1
+QtPy==2.4.3
+superqt==0.8.0
+npe2==0.8.1
+scipy==1.17.1
+# aggregation and figures (python -m paper_benchmarks.make_final_figures)
+pandas==3.0.1
+matplotlib==3.11.2
+# tests
+pytest==9.0.2
+pytest-qt==4.5.0

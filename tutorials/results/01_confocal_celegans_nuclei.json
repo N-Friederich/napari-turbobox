@@ -1,0 +1,67 @@
+{
+ "case": "01_confocal_celegans_nuclei",
+ "modality": "confocal fluorescence microscopy",
+ "objects": "nuclei (instance masks)",
+ "dataset": "Long et al. 2022, Zenodo, doi:10.5281/zenodo.5942575 (CC-BY-4.0)",
+ "volume": "c_elegans_nuclei/train/images/C18G1_2L1_1.tif",
+ "box_source": "ground-truth instance masks",
+ "check": {
+  "boxes": 555,
+  "valid": 555
+ },
+ "export": {
+  "boxes": 555,
+  "coco_images": 64,
+  "coco_annotations": 7262,
+  "yolo_files": 64
+ },
+ "drag": {
+  "box_index": 322,
+  "before": [
+   [
+    81.0,
+    61.0,
+    436.0
+   ],
+   [
+    93.0,
+    71.0,
+    449.0
+   ]
+  ],
+  "after": [
+   [
+    81.0,
+    63.0,
+    439.0
+   ],
+   [
+    93.0,
+    73.0,
+    452.0
+   ]
+  ],
+  "intended_shift_zyx": [
+   0.0,
+   2.0,
+   3.0
+  ],
+  "shift_zyx": [
+   0.0,
+   2.0,
+   3.0
+  ],
+  "valid": true,
+  "views_show_moved_box": {
+   "XZ (read-only)": true,
+   "YZ (read-only)": true,
+   "3D (read-only)": true
+  }
+ },
+ "image_shape": [
+  140,
+  140,
+  1244
+ ],
+ "n_boxes": 555
+}

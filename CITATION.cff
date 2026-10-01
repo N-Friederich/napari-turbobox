@@ -1,0 +1,124 @@
+# Authors, order and affiliations as in the napari-TurboBox Application Note.
+# ORCID iDs are given where the manuscript lists one.
+cff-version: 1.2.0
+message: >-
+  If you use napari-TurboBox, please cite it using the metadata from this
+  file.
+type: software
+title: napari-TurboBox
+version: 0.1.0
+date-released: 2026-10-01
+license: Apache-2.0
+repository-code: "https://github.com/N-Friederich/napari-turbobox"
+url: "https://github.com/N-Friederich/napari-turbobox"
+abstract: >-
+  Promptable segmentation models segment 3D target objects from a single
+  axis-aligned bounding box (AABB) into a full 3D instance mask, which makes
+  fast, accurate box placement the rate-limiting step when annotating large
+  volumetric images. Placing a box well is a multi-viewer task, editing in one
+  slice and checking against the orthogonal views. napari-TurboBox is a napari
+  plugin that keeps all boxes in one shared store for all viewers: one viewer
+  is used for editing, the others show the same boxes read-only. Boxes stay
+  axis-aligned while they are moved or resized and can be exported as
+  per-slice COCO and YOLO annotations.
+keywords:
+  - napari
+  - bounding box annotation
+  - volumetric microscopy
+  - promptable segmentation
+  - multi-viewer synchronization
+  - COCO
+  - YOLO
+contact:
+  - family-names: Friederich
+    given-names: Nils
+    email: nils.friederich@kit.edu
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+authors:
+  - family-names: Friederich
+    given-names: Nils
+    orcid: "https://orcid.org/0009-0003-9377-3140"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany; Institute of Biological and Chemical
+      Systems (IBCS), Karlsruhe Institute of Technology, Germany
+  - family-names: Kohle
+    given-names: Philip
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany; Institute of Biological and Chemical
+      Systems (IBCS), Karlsruhe Institute of Technology, Germany
+  - family-names: Beichter
+    given-names: Maximilian
+    orcid: "https://orcid.org/0009-0009-9713-3590"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Wellhäusser
+    given-names: Mona
+    orcid: "https://orcid.org/0009-0002-4004-6508"
+    affiliation: >-
+      Institute of Biological and Chemical Systems (IBCS), Karlsruhe Institute
+      of Technology, Germany
+  - family-names: Stahl
+    given-names: Marcel
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Zwick
+    given-names: Pascal
+    orcid: "https://orcid.org/0009-0009-6145-865X"
+    affiliation: >-
+      Intelligent Systems and Production Engineering, FZI Research Center for
+      Information Technology, Germany
+  - family-names: Yamachui Sitcheu
+    given-names: Angelo Jovin
+    orcid: "https://orcid.org/0009-0002-9384-6496"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Lautenschlager
+    given-names: Thomas
+    orcid: "https://orcid.org/0009-0002-3214-9363"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Exler
+    given-names: David
+    orcid: "https://orcid.org/0009-0005-4116-5287"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Schilpp
+    given-names: Linus
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Allgeier
+    given-names: Stephan
+    orcid: "https://orcid.org/0000-0002-1218-448X"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany
+  - family-names: Specker
+    given-names: Andreas
+    orcid: "https://orcid.org/0009-0001-2391-3326"
+    affiliation: >-
+      Institute of Optronics, System Technologies and Image Exploitation
+      (IOSB), Fraunhofer, Germany; Center for Machine Learning (CML),
+      Fraunhofer, Germany
+  - family-names: Hilbert
+    given-names: Lennart
+    orcid: "https://orcid.org/0000-0003-4478-5607"
+    affiliation: >-
+      Institute of Biological and Chemical Systems (IBCS), Karlsruhe Institute
+      of Technology, Germany; Zoological Institute (ZOO), Karlsruhe Institute
+      of Technology, Germany
+  - family-names: Mikut
+    given-names: Ralf
+    orcid: "https://orcid.org/0000-0001-9100-5496"
+    affiliation: >-
+      Institute for Automation and Applied Informatics (IAI), Karlsruhe
+      Institute of Technology, Germany

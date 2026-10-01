@@ -1,0 +1,59 @@
+# The checks of the CI lint job (.github/workflows/test.yml): ruff on the same
+# files with the same pinned version, and the plugin manifest check (here on
+# the manifest file; CI finds it through the installed entry point). There are
+# no formatter hooks: they would rewrite the benchmarked code, which the README
+# compares with the measured version.
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v6.0.0
+    hooks:
+      - id: check-yaml
+      - id: check-toml
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: detect-private-key
+      - id: check-added-large-files
+        # The README's demo GIF and screenshots are large on purpose. They are
+        # not part of the sdist or the wheel.
+        args: [--maxkb=512]
+        exclude: ^docs/(demo\.gif|screenshot-views\.png|screenshot-panel\.png)$
+
+  - repo: local
+    hooks:
+      - id: ruff
+        name: ruff check (same files and version as the CI lint job)
+        # The same command as the CI lint job, on the same files: ruff.toml
+        # excludes paper_benchmarks/ and docs/, and CI lints the benchmark core
+        # and the demo recorder by naming them.
+        entry: >-
+          ruff check src tests examples tutorials/tutorial_utils.py docs/make_demo.py
+          paper_benchmarks/drag_session_benchmark.py paper_benchmarks/sync_adapter.py
+          paper_benchmarks/make_final_figures.py
+        language: python
+        additional_dependencies: [ruff==0.15.7]
+        pass_filenames: false
+        files: \.py$
+
+      - id: npe2-validate
+        name: validate the napari plugin manifest
+        entry: npe2 validate src/napari_turbobox/napari.yaml
+        language: python
+        additional_dependencies: [npe2==0.8.1]
+        pass_filenames: false
+        files: ^(src/napari_turbobox/napari\.yaml|setup\.cfg)$
+
+      - id: demo-gif
+        name: Record the README demo GIF and screenshots
+        # Manual only: it opens four napari windows for about a minute and needs
+        # a display, ffmpeg and napari with a Qt binding in the active Python.
+        # After a change to the plugin, run
+        #   pre-commit run demo-gif --hook-stage manual --all-files
+        # (--all-files: without it, pre-commit stashes unstaged changes and can
+        # roll back a new recording). When the files change, pre-commit reports
+        # the hook as failed ("files were modified by this hook"); that is
+        # expected. Commit docs/demo.gif and docs/screenshot-*.png afterwards.
+        entry: python docs/make_demo.py
+        language: system
+        always_run: true
+        stages: [manual]
+        pass_filenames: false

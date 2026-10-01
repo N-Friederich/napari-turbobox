@@ -1,0 +1,37 @@
+{
+  "description": "Expected output of examples/celegans_workflow.py --headless (GT-derived boxes only, no interactive edits). Checked by tests/test_real_data_workflow.py.",
+  "dataset": {
+    "doi": "10.5281/zenodo.5942575",
+    "licence": "CC-BY-4.0",
+    "zip": "c_elegans_nuclei.zip",
+    "zip_bytes": 84403531,
+    "zip_md5": "7d616d91c4a6cce75a7d4dd37d7e666a",
+    "image_member": "c_elegans_nuclei/train/images/C18G1_2L1_1.tif",
+    "labels_member": "c_elegans_nuclei/train/masks/C18G1_2L1_1.tif"
+  },
+  "axis_convention": "Arrays as returned by tifffile.imread, shape (140, 140, 1244), used as napari (z, y, x). Per-slice COCO/YOLO slices along axis 0; COCO image height 140, width 1244.",
+  "image_shape": [140, 140, 1244],
+  "n_labels": 555,
+  "n_boxes": 555,
+  "coco": {
+    "images": 64,
+    "annotations": 7262,
+    "first_slice": 39,
+    "last_slice": 102,
+    "annotations_per_slice": [1, 2, 7, 11, 17, 25, 37, 42, 49, 58, 68, 85, 98, 111, 127, 131, 136, 143, 150, 146, 153, 169, 173, 170, 166, 160, 165, 162, 156, 160, 165, 169, 163, 165, 164, 164, 154, 156, 160, 172, 174, 177, 178, 179, 181, 176, 164, 163, 168, 159, 143, 126, 113, 91, 77, 67, 63, 51, 44, 32, 14, 7, 4, 1],
+    "categories": [{"id": 1, "name": "object"}],
+    "sha256": "6bbff3788e765025bee6eabfc4e9a535888c91507ae8536441b7cf2eb5d834bf",
+    "sha256_recipe": "sha256(json.dumps(json.load(coco_per_slice.json), sort_keys=True, separators=(',', ':')).encode())"
+  },
+  "yolo": {
+    "files": 64,
+    "lines": 7262,
+    "sha256": "15d7d5a4f5cd449265d20b3bf8d27588afcbbc1565e0f9d86e0ebfeff96b50b3",
+    "sha256_recipe": "for each file name in sorted order: update(name.encode() + b'\\0' + text.encode() + b'\\0')"
+  },
+  "provenance": {
+    "source": "a dry run of the README workflow, recorded in the verification records kept by the authors (a4_dryrun_report.json, key celegans, with the files coco_per_slice.json and yolo/ next to it; napari 0.7.0, napari_turbobox at commit 1b2ba33 of the private development repository; the code of src/napari_turbobox/export.py is unchanged since; only its docstrings were revised).",
+    "box_derivation": "The dry run derived boxes with compute_bboxes from an earlier screenshot script (paper_benchmarks/generate_gui_screenshots.py, removed from the tree; a copy is in paper_results/provenance/benchmarked_code_state_20260925.tgz) (per-label argwhere min/max, ascending label order) and added them to a 4-viewer layout via create_synchronized_bbox_layers + add_boxes. examples/labels_to_boxes.py uses scipy.ndimage.find_objects (min = start, max = stop - 1, ascending label order). Both give the same boxes for this volume: the dry run recorded 0 boxes with an extent below 1 and all boxes inside [0, shape - 1], so the widening/clamping step changes nothing.",
+    "gui_check_is_not_this_fixture": "A GUI check kept by the authors (gui_check.json) reports 555 boxes (554 GT-derived + 1 drawn), 140 COCO images, 7,391 annotations and 140 YOLO files for the same volume and the same axis convention. That export was taken after interactive edits: one GT box spanning z 63-73 (11 slices) was deleted with napari's Delete and one box was drawn with Add Rectangle and extruded over the full z range 0-139 (visible in its export_boxes.npy). 7,262 - 11 + 140 = 7,391 annotations; the drawn box adds the 76 slices without nuclei, so 64 + 76 = 140 images."
+  }
+}

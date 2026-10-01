@@ -1,0 +1,94 @@
+name: tests
+
+# Version tags do not trigger this workflow directly: release.yml calls it (workflow_call) and
+# publishes only when the lint job and every test job pass.
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_dispatch:
+  workflow_call:
+
+concurrency:
+  # A fixed prefix, because github.workflow is the caller's name when release.yml calls this file.
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: ruff and manifest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff==0.15.7 npe2==0.8.1  # the versions in .pre-commit-config.yaml
+          pip install --no-deps -e .  # the entry point for npe2, without resolving napari
+      - name: Ruff
+        # Only the benchmark core is linted, not memory_benchmark.py or the run
+        # scripts in paper_benchmarks/final_run/.
+        run: |
+          ruff check src tests examples tutorials/tutorial_utils.py docs/make_demo.py \
+            paper_benchmarks/drag_session_benchmark.py paper_benchmarks/sync_adapter.py \
+            paper_benchmarks/make_final_figures.py
+      - name: Validate the napari plugin manifest
+        run: npe2 validate napari-turbobox
+
+  test:
+    name: ${{ matrix.platform }} py${{ matrix.python-version }} ${{ matrix.napari }}
+    runs-on: ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.11", "3.12"]
+        napari: ["napari[all]>=0.6.6,<0.10"]
+        include:
+          # the napari versions the plugin is tested against locally
+          - platform: ubuntu-latest
+            python-version: "3.12"
+            napari: "napari[all]==0.6.6"
+          - platform: ubuntu-latest
+            python-version: "3.12"
+            napari: "napari[all]==0.7.0"
+          - platform: ubuntu-latest
+            python-version: "3.12"
+            napari: "napari[all]==0.9.1"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: "pip"
+
+      # Qt needs system libraries (xcb platform plugin, EGL, ...) on Linux; no-op elsewhere.
+      - name: Install Qt system libraries (Linux)
+        uses: tlambert03/setup-qt-libs@v1.8
+
+      - name: Install
+        run: |
+          python -m pip install --upgrade pip
+          pip install "${{ matrix.napari }}"
+          pip install -e ".[testing]" pytest-cov
+
+      # The tests build real napari viewers, so they need a display: headless-gui runs
+      # the command under Xvfb on Linux and unchanged on Windows/macOS.
+      - name: Run tests
+        uses: aganders3/headless-gui@v2
+        with:
+          run: pytest -v --cov=napari_turbobox --cov-report=xml --cov-report=term-missing
+
+      - name: Upload coverage to Codecov
+        if: matrix.platform == 'ubuntu-latest' && matrix.python-version == '3.11'
+        uses: codecov/codecov-action@v5
+        with:
+          files: ./coverage.xml
+          fail_ci_if_error: false

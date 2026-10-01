@@ -1,0 +1,7 @@
+tool,n_boxes,store_bytes,index_bytes,store_plus_index,total_alloc_bytes,store_dtype
+modern,100,2400,14400,16800,428135,float32
+modern,1000,24000,144000,168000,648971,float32
+modern,10000,240000,1440000,1680000,2865518,float32
+legacy,100,,,,829184,
+legacy,1000,,,,4467019,
+legacy,10000,,,,39698752,

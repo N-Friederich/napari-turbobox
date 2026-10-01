@@ -1,0 +1,68 @@
+{
+ "case": "03_micro_ct_nucmm_m",
+ "modality": "X-ray micro-computed tomography",
+ "objects": "cell nuclei (instance labels)",
+ "dataset": "NucMM-M, Lin et al. 2021 (MICCAI); HuggingFace pytc/NucMM (MIT)",
+ "volume": "Image/val/img_000_200_576.h5",
+ "box_source": "ground-truth instance labels",
+ "boxes_touching_crop_face": 116,
+ "check": {
+  "boxes": 282,
+  "valid": 282
+ },
+ "export": {
+  "boxes": 282,
+  "coco_images": 192,
+  "coco_annotations": 4719,
+  "yolo_files": 192
+ },
+ "drag": {
+  "box_index": 247,
+  "before": [
+   [
+    172.0,
+    129.0,
+    93.0
+   ],
+   [
+    190.0,
+    140.0,
+    108.0
+   ]
+  ],
+  "after": [
+   [
+    172.0,
+    131.0,
+    96.0
+   ],
+   [
+    190.0,
+    142.0,
+    111.0
+   ]
+  ],
+  "intended_shift_zyx": [
+   0.0,
+   2.0,
+   3.0
+  ],
+  "shift_zyx": [
+   0.0,
+   2.0,
+   3.0
+  ],
+  "valid": true,
+  "views_show_moved_box": {
+   "XZ (read-only)": true,
+   "YZ (read-only)": true,
+   "3D (read-only)": true
+  }
+ },
+ "image_shape": [
+  192,
+  192,
+  192
+ ],
+ "n_boxes": 282
+}

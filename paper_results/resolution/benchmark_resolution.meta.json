@@ -1,0 +1,38 @@
+{
+ "script": "records/TB-PERF-01/resolution_final.py",
+ "started": "2026-09-25T18:37:16+0200",
+ "finished": "2026-09-25T18:39:37+0200",
+ "thumbnails": "off",
+ "pacing": "spin",
+ "ortho_follow": true,
+ "warmup": 1,
+ "edit_view": "mouse",
+ "drags_per_size": 12,
+ "code_state": {
+  "base_commit": "1b2ba33dd8bffe0235af23a29e1e2cb79749fbbc",
+  "dirty": true,
+  "tracked_diff_sha256": "1cf6bf84b6a37bd2da3e440dc72f0f632519124fe3de784a2cc0701c0db1d6c7",
+  "untracked": {},
+  "combined_sha256": "a8ad8214db5ea2e6ae42e1161bc06e652b7ebe3b4637f30bd68b788dae8b5eea",
+  "tracked_diff_cmd": "git diff --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers --src-prefix=a/ --dst-prefix=b/ --binary HEAD -- src paper_benchmarks"
+ },
+ "code_state_end": {
+  "base_commit": "1b2ba33dd8bffe0235af23a29e1e2cb79749fbbc",
+  "dirty": true,
+  "tracked_diff_sha256": "1cf6bf84b6a37bd2da3e440dc72f0f632519124fe3de784a2cc0701c0db1d6c7",
+  "untracked": {},
+  "combined_sha256": "a8ad8214db5ea2e6ae42e1161bc06e652b7ebe3b4637f30bd68b788dae8b5eea",
+  "tracked_diff_cmd": "git diff --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers --src-prefix=a/ --dst-prefix=b/ --binary HEAD -- src paper_benchmarks"
+ },
+ "env_differs_from_reference": {},
+ "process_state": {
+  "nice": 0,
+  "ps": "46 S",
+  "power": "Now drawing from 'AC Power'",
+  "loadavg": [
+   3.08154296875,
+   2.56982421875,
+   2.42626953125
+  ]
+ }
+}

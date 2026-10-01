@@ -1,0 +1,2949 @@
+diff --git a/paper_benchmarks/drag_session_benchmark.py b/paper_benchmarks/drag_session_benchmark.py
+index 043b807..eca37d8 100644
+--- a/paper_benchmarks/drag_session_benchmark.py
++++ b/paper_benchmarks/drag_session_benchmark.py
+@@ -40,7 +40,21 @@ import time
+ import numpy as np
+ 
+ os.environ.pop("QT_QPA_PLATFORM", None)  # native backend; never force offscreen
+-from qtpy.QtWidgets import QApplication  # noqa: E402
++from qtpy.QtWidgets import QApplication
++
++# The environment in which the published numbers were measured (full pip freeze:
++# paper_results_v2/environment/pip_freeze_benchmark_env.txt). Runs in another
++# environment work, but their timings are not comparable one to one.
++REFERENCE_ENV = {
++    "python": "3.12.13",
++    "napari": "0.7.0",
++    "napari-bbox": "0.1.1",
++    "numpy": "2.4.3",
++    "vispy": "0.16.1",
++    "bermuda": "0.1.7",
++    "PyQt6": "6.10.2",
++    "platform": "macOS arm64 (Apple M2 Pro)",
++}
+ 
+ IMAGE_SHAPE = (60, 256, 256)
+ N_SUB = 60
+@@ -79,8 +93,7 @@ def setup_modern(n, V, image_shape, orthogonal, with_3d):
+     import napari
+ 
+     from napari_turbobox import create_synchronized_bbox_layers
+-
+-    from paper_benchmarks.sync_adapter import TurboBoxAdapter
++    from paper_benchmarks.sync_adapter import TurboBoxAdapter, TurboBoxMouseAdapter
+ 
+     viewers = [napari.Viewer(show=False) for _ in range(V)]
+     for i, v in enumerate(viewers):
+@@ -94,7 +107,11 @@ def setup_modern(n, V, image_shape, orthogonal, with_3d):
+         main_viewer=viewers[0], sub_viewers=viewers[1:], image_shape=image_shape
+     )
+     layers[0].add_boxes(make_boxes(n, image_shape))
+-    return TurboBoxAdapter(layers[0]), viewers, layers, layers[0]._bbox_store.data.copy()
++    if THUMBNAILS == "on":
++        for layer in layers:
++            layer.suppress_thumbnail_in_session = False
++    adapter = TurboBoxMouseAdapter(layers[0]) if EDIT_VIEW == "mouse" else TurboBoxAdapter(layers[0])
++    return adapter, viewers, layers, layers[0]._bbox_store.data.copy()
+ 
+ 
+ class _LegacyShim:
+@@ -120,6 +137,18 @@ class _LegacyShim:
+         self._layer.data = np.asarray(v, float)
+ 
+ 
++THUMBNAILS = "off"  # modern: "off" = skip thumbnails inside edit sessions (default), "on" = rasterize every update
++TRI_BACKEND = "default"  # "default" (napari settings) or "pure_python" (forced)
++DRAG_PROTOCOL = "random3d"  # "random3d" (records) or "xy_visible" (box visible in XY, y/x moves)
++LEGACY_SYNC = "full"  # "full" (layer.data per viewer), "per_box" (public remove/add), "per_box_nothumb",
++# "per_box_quiet" (per_box_nothumb with napari data events deferred to the release, as napari-bbox's own drag)
++EDIT_VIEW = "api"  # "api": the edited view is updated like the others; "mouse": both tools drag the
++# box with the mouse in the edited (first) view, through napari's mouse dispatch and their own handlers
++ORTHO_FOLLOW = False  # panel a: before each drag (untimed), slice the XZ/YZ views through the dragged box
++WARMUP = 0  # untimed warm-up drags per configuration (state restored afterwards)
++PACING = "sleep"  # "sleep" (idle between sub-edits) or "spin" (busy-wait; same 30 Hz schedule)
++
++
+ def setup_legacy(n, V, image_shape, orthogonal, with_3d):
+     """Build the legacy napari-bbox setup (no shared store: V independent layers).
+ 
+@@ -128,17 +157,20 @@ def setup_legacy(n, V, image_shape, orthogonal, with_3d):
+     modern ``on_commit`` deferral so the comparison stays fair.
+     """
+     import napari
+-    from napari_bbox import BoundingBoxLayer
++    import napari_bbox  # noqa: F401  (registers Viewer.add_bounding_boxes)
+ 
+-    from paper_benchmarks.sync_adapter import NapariBboxAdapter
++    from paper_benchmarks.sync_adapter import (
++        NapariBboxAdapter,
++        NapariBboxMouseAdapter,
++        NapariBboxPerBoxAdapter,
++    )
+ 
+     boxes = make_boxes(n, image_shape)
+     viewers, shims, ndisplays = [], [], []
+     for i in range(V):
+         v = napari.Viewer(show=False)
+         _config_2d(v, image_shape, i, orthogonal)
+-        lyr = BoundingBoxLayer(ndim=3, edge_color="cyan")
+-        v.add_layer(lyr)
++        lyr = v.add_bounding_boxes(ndim=3, edge_color="cyan")  # napari-bbox's own entry point
+         s = _LegacyShim(lyr)
+         s.data = boxes
+         viewers.append(v)
+@@ -148,18 +180,32 @@ def setup_legacy(n, V, image_shape, orthogonal, with_3d):
+         v = napari.Viewer(show=False)
+         v.add_image(np.zeros(image_shape, np.uint8), name="bg")
+         v.dims.ndisplay = 3
+-        lyr = BoundingBoxLayer(ndim=3, edge_color="cyan")
+-        v.add_layer(lyr)
++        lyr = v.add_bounding_boxes(ndim=3, edge_color="cyan")  # napari-bbox's own entry point
+         s = _LegacyShim(lyr)
+         s.data = boxes
+         viewers.append(v)
+         shims.append(s)
+         ndisplays.append(3)
+-    return NapariBboxAdapter(shims, ndisplays=ndisplays), viewers, shims, shims[0].data.copy()
++    if EDIT_VIEW == "mouse":
++        # the other live views follow per box, thumbnails deferred
++        assert LEGACY_SYNC in ("per_box_nothumb", "per_box_quiet"), (
++            "--edit-view mouse needs --legacy-sync per_box_nothumb or per_box_quiet")
++        adapter = NapariBboxMouseAdapter([s._layer for s in shims], ndisplays=ndisplays,
++                                         quiet=LEGACY_SYNC == "per_box_quiet")
++    elif LEGACY_SYNC in ("per_box", "per_box_nothumb", "per_box_quiet"):
++        adapter = NapariBboxPerBoxAdapter(
++            [s._layer for s in shims],
++            ndisplays=ndisplays,
++            block_thumbnails=LEGACY_SYNC in ("per_box_nothumb", "per_box_quiet"),
++            quiet=LEGACY_SYNC == "per_box_quiet",
++        )
++    else:
++        adapter = NapariBboxAdapter(shims, ndisplays=ndisplays)
++    return adapter, viewers, shims, shims[0].data.copy()
+ 
+ 
+ def measure_drag_session(adapter, drag_idx, n_boxes, current, image_shape,
+-                         n_sub=N_SUB, target_hz=TARGET_HZ):
++                         n_sub=N_SUB, target_hz=TARGET_HZ, before_drag=None):
+     """Run one drag (60 sub-updates @ 30 Hz, then commit) and return per-update + commit latency.
+ 
+     ``current`` is mutated in place so the next drag starts where this one ended.
+@@ -171,19 +217,35 @@ def measure_drag_session(adapter, drag_idx, n_boxes, current, image_shape,
+     rng = np.random.default_rng(seed=drag_idx)
+     box_idx = int(rng.integers(0, n_boxes))
+     op = "translate" if drag_idx % 2 == 0 else "resize"
++    moving_axes = np.ones(3)
++    if DRAG_PROTOCOL == "xy_visible":
++        # A user drags a box they see in the editing XY view (slice z = Z/2),
++        # in the view's plane: pick among boxes crossing that slice, move y/x only.
++        z = image_shape[0] // 2
++        visible = np.flatnonzero((current[:, 0, 0] <= z) & (current[:, 1, 0] >= z))
++        if len(visible):
++            box_idx = int(visible[rng.integers(0, len(visible))])
++        moving_axes = np.array([0.0, 1.0, 1.0])
+     start = current[box_idx].copy()
+     bounds = np.array(image_shape, float) - 1
+     if op == "translate":
+-        delta = rng.integers(-20, 21, size=3).astype(float)
++        delta = rng.integers(-20, 21, size=3).astype(float) * moving_axes
+         size = start[1] - start[0]
+         end_min = np.clip(start[0] + delta, 0.0, bounds - size)
+         end_box = np.stack([end_min, end_min + size])
+     else:
+-        delta = rng.integers(-15, 16, size=3).astype(float)
++        delta = rng.integers(-15, 16, size=3).astype(float) * moving_axes
+         end_min = np.clip(start[0], 0.0, bounds - 1.0)
+         end_max = np.clip(start[1] + delta, end_min + 1.0, bounds)
+         end_box = np.stack([end_min, end_max])
+ 
++    if before_drag is not None:  # untimed: e.g. move the orthogonal views onto the box
++        before_drag(box_idx, start)
++    prepare = getattr(adapter, "prepare_drag", None)
++    if prepare is not None:  # untimed mouse press, for an adapter that drives a drag handler
++        prepare(box_idx, start, end_box)
++        QApplication.processEvents()
++
+     subs = []
+     nominal = 1.0 / target_hz
+     session_start = time.perf_counter()
+@@ -193,8 +255,12 @@ def measure_drag_session(adapter, drag_idx, n_boxes, current, image_shape,
+         t = s / (n_sub - 1) if n_sub > 1 else 0.0
+         interp = start + t * (end_box - start)
+         now = time.perf_counter()
+-        if now < next_target:  # 30 Hz real pacing (sleep excluded from latency below)
+-            time.sleep(next_target - now)
++        if now < next_target:  # 30 Hz real pacing (waiting time excluded from latency below)
++            if PACING == "spin":
++                while time.perf_counter() < next_target:
++                    pass
++            else:
++                time.sleep(next_target - now)
+         t0 = time.perf_counter()
+         adapter.update_box(box_idx, interp)
+         QApplication.processEvents()
+@@ -212,10 +278,41 @@ def run_condition(tool, n, V, orthogonal, with_3d, n_drags, image_shape=IMAGE_SH
+     """Run ``n_drags`` drags for one (tool, N, V, layout) condition; return (all sub_ms, commit_ms list)."""
+     setup = setup_modern if tool == "modern" else setup_legacy
+     adapter, viewers, _layers, current = setup(n, V, image_shape, orthogonal, with_3d)
++    if TRI_BACKEND == "pure_python":
++        # Viewer construction re-applies the settings backend, so force it after
++        # setup (module-level switch, never via settings, which auto-save to disk)
++        # and rebuild existing TurboBox shapes under it.
++        from napari.utils.triangulation_backend import TriangulationBackend, set_backend
++
++        set_backend(TriangulationBackend.pure_python)
++        if tool == "modern":
++            for layer in _layers:
++                layer._sync_shapes_from_bboxes()
++    follow = None
++    if ORTHO_FOLLOW and orthogonal:
++        def follow(box_idx, box):
++            centre = np.asarray(box, float).mean(axis=0)
++            for i, v in enumerate(viewers[1:V], start=1):
++                _order, sax = _ORIENT[i % 3]
++                v.dims.set_point(sax, round(centre[sax]))
++            for _ in range(3):
++                QApplication.processEvents()
++    for w in range(WARMUP):
++        # Untimed warm-up drag on its own trajectory; the moved box is put back
++        # afterwards, so the timed drags are identical with and without warm-up.
++        before = current.copy()
++        measure_drag_session(adapter, 10_000 + w, n, current, image_shape, before_drag=follow)
++        changed = np.flatnonzero(np.any(current != before, axis=(1, 2)))
++        adapter.begin_edit_session()
++        for idx in changed:
++            adapter.update_box(int(idx), before[idx])
++        adapter.end_edit_session()
++        current[changed] = before[changed]
++        QApplication.processEvents()
+     gc.collect()
+     subs_all, commits = [], []
+     for d in range(n_drags):
+-        s, c = measure_drag_session(adapter, d, n, current, image_shape)
++        s, c = measure_drag_session(adapter, d, n, current, image_shape, before_drag=follow)
+         subs_all.extend(s)
+         commits.append(c)
+     for v in viewers:
+@@ -229,7 +326,30 @@ def main():
+     ap.add_argument("--replicate", type=int, required=True)
+     ap.add_argument("--out", default="paper_results")
+     ap.add_argument("--drags", type=int, default=50)
++    ap.add_argument("--legacy-sync", choices=["full", "per_box", "per_box_nothumb", "per_box_quiet"], default="full")
++    ap.add_argument("--drag-protocol", choices=["random3d", "xy_visible"], default="random3d")
++    ap.add_argument("--tri-backend", choices=["default", "pure_python"], default="default")
++    ap.add_argument("--panels", default="ab", help="which panels to run: a, b or ab")
++    ap.add_argument("--ns", default="10,50,100,200,500,1000", help="panel-a box counts")
++    ap.add_argument("--thumbnails", choices=["off", "on"], default="off", help="modern only")
++    ap.add_argument("--ortho-follow", action="store_true",
++                    help="panel a: slice the XZ/YZ views through the dragged box before each drag")
++    ap.add_argument("--warmup", type=int, default=0, help="untimed warm-up drags per configuration")
++    ap.add_argument("--pacing", choices=["sleep", "spin"], default="sleep")
++    ap.add_argument("--edit-view", choices=["api", "mouse"], default="api",
++                    help="mouse: drag in the first view through napari's mouse dispatch (xy_visible only)")
+     args = ap.parse_args()
++    global LEGACY_SYNC, DRAG_PROTOCOL, TRI_BACKEND, THUMBNAILS, ORTHO_FOLLOW, WARMUP, PACING, EDIT_VIEW
++    LEGACY_SYNC = args.legacy_sync
++    DRAG_PROTOCOL = args.drag_protocol
++    TRI_BACKEND = args.tri_backend
++    THUMBNAILS = args.thumbnails
++    ORTHO_FOLLOW = args.ortho_follow
++    WARMUP = args.warmup
++    PACING = args.pacing
++    EDIT_VIEW = args.edit_view
++    if EDIT_VIEW == "mouse" and DRAG_PROTOCOL != "xy_visible":
++        ap.error("--edit-view mouse drags boxes visible in the XY view: use --drag-protocol xy_visible")
+     try:
+         _app = QApplication.instance() or QApplication([])
+     except Exception as e:
+@@ -237,46 +357,255 @@ def main():
+         sys.exit(2)
+ 
+     rows, dist = [], []
++    t_start = time.strftime("%Y-%m-%dT%H:%M:%S%z")
++    env_diffs = _warn_if_environment_differs()
++    state_start = _process_state()
++    code_start = _code_state()  # before any measurement; re-checked in _write_provenance
+ 
+     def record(panel, n, V, orthogonal, with_3d, vlabel):
+         t0 = time.perf_counter()
++        started = time.strftime("%Y-%m-%dT%H:%M:%S")
+         subs, commits = run_condition(args.tool, n, V, orthogonal, with_3d, args.drags)
+-        rows.append(dict(tool=args.tool, replicate=args.replicate, panel=panel, n_boxes=n,
+-                         n_viewers=vlabel, n_drags=len(commits), n_sub=len(subs),
+-                         sub_median_ms=float(np.median(subs)),
+-                         sub_p95_ms=float(np.percentile(subs, 95)),
+-                         sub_p99_ms=float(np.percentile(subs, 99)),
+-                         commit_median_ms=float(np.median(commits))))
++        rows.append({"tool": args.tool, "replicate": args.replicate, "panel": panel, "n_boxes": n,
++                         "n_viewers": vlabel, "n_drags": len(commits), "n_sub": len(subs),
++                         "sub_median_ms": float(np.median(subs)),
++                         "sub_p95_ms": float(np.percentile(subs, 95)),
++                         "sub_p99_ms": float(np.percentile(subs, 99)),
++                         "commit_median_ms": float(np.median(commits)), "started": started})
+         if (panel, n, vlabel) in DUMP:
+             for x in subs:
+-                dist.append(dict(tool=args.tool, replicate=args.replicate,
+-                                 config=f"{panel}_N{n}_V{vlabel}", sub_ms=x))
++                dist.append({"tool": args.tool, "replicate": args.replicate,
++                                 "config": f"{panel}_N{n}_V{vlabel}", "sub_ms": x})
+         print(f"[{args.tool} rep{args.replicate}] {panel} N={n:>4} V={vlabel}: "
+               f"med={np.median(subs):7.2f} p95={np.percentile(subs, 95):7.2f} "
+               f"p99={np.percentile(subs, 99):8.2f} commit={np.median(commits):8.2f} "
+               f"({time.perf_counter() - t0:.0f}s)", flush=True)
+ 
+     # (a) realistic: orthogonal 3x2D + 1x3D (deferred), N-sweep
+-    for n in (10, 50, 100, 200, 500, 1000):
+-        record("a", n, 3, orthogonal=True, with_3d=True, vlabel="3+3D")
++    if "a" in args.panels:
++        for n in (int(x) for x in args.ns.split(",")):
++            record("a", n, 3, orthogonal=True, with_3d=True, vlabel="3+3D")
+     # (b) V-scaling: identical XY viewers at N=100
+-    for V in (1, 2, 4, 8):
+-        record("b", 100, V, orthogonal=False, with_3d=False, vlabel=str(V))
++    if "b" in args.panels:
++        for V in (1, 2, 4, 8):
++            record("b", 100, V, orthogonal=False, with_3d=False, vlabel=str(V))
+ 
+     os.makedirs(args.out, exist_ok=True)
+-    p = os.path.join(args.out, f"drag_session_{args.tool}_rep{args.replicate}.csv")
++    tag = args.tool if args.legacy_sync == "full" or args.tool == "modern" else f"{args.tool}-{args.legacy_sync}"
++    if args.drag_protocol != "random3d":
++        tag = f"{tag}-{args.drag_protocol}"
++    if args.tri_backend != "default":
++        tag = f"{tag}-{args.tri_backend}"
++    if args.tool == "modern" and args.thumbnails != "off":
++        tag = f"{tag}-thumbs_{args.thumbnails}"
++    if args.ortho_follow:
++        tag = f"{tag}-follow"
++    if args.warmup:
++        tag = f"{tag}-warm{args.warmup}"
++    if args.pacing != "sleep":
++        tag = f"{tag}-{args.pacing}"
++    if args.edit_view != "api":
++        tag = f"{tag}-{args.edit_view}"
++    p = os.path.join(args.out, f"drag_session_{tag}_rep{args.replicate}.csv")
+     with open(p, "w", newline="") as f:
+         w = csv.DictWriter(f, fieldnames=list(rows[0].keys()))
+         w.writeheader()
+         w.writerows(rows)
+     if dist:
+-        pd_path = os.path.join(args.out, f"drag_session_dist_{args.tool}_rep{args.replicate}.csv")
++        pd_path = os.path.join(args.out, f"drag_session_dist_{tag}_rep{args.replicate}.csv")
+         with open(pd_path, "w", newline="") as f:
+             w = csv.DictWriter(f, fieldnames=list(dist[0].keys()))
+             w.writeheader()
+             w.writerows(dist)
++    _write_provenance(args, p, t_start, state_start, code_start, env_diffs)
+     print(f"wrote {p}")
+ 
+ 
++def _environment_differences():
++    """Return ``{name: (reference, found)}`` for every entry that differs from REFERENCE_ENV."""
++    import platform
++    from importlib import metadata
++
++    found = {"python": platform.python_version()}
++    for dist in ("napari", "napari-bbox", "numpy", "vispy", "bermuda", "PyQt6"):
++        try:
++            found[dist] = metadata.version(dist)
++        except metadata.PackageNotFoundError:
++            found[dist] = "not installed"
++    is_ref_platform = platform.system() == "Darwin" and platform.machine() == "arm64"
++    found["platform"] = REFERENCE_ENV["platform"] if is_ref_platform else f"{platform.system()} {platform.machine()}"
++    return {k: (v, found[k]) for k, v in REFERENCE_ENV.items() if found.get(k) != v}
++
++
++def _warn_if_environment_differs():
++    diffs = _environment_differences()
++    if diffs:
++        lines = [f"  {k}: benchmarked with {ref}, found {got}" for k, (ref, got) in diffs.items()]
++        print("WARNING: this environment differs from the one the published numbers were measured in:\n"
++              + "\n".join(lines)
++              + "\n  The run is valid, but its timings are not directly comparable. The reference\n"
++              "  environment is listed in paper_results_v2/environment/pip_freeze_benchmark_env.txt.",
++              file=sys.stderr, flush=True)
++    return diffs
++
++
++def _process_state():
++    """Scheduling and power state of this process (for the provenance sidecar)."""
++    import subprocess
++
++    def _run(*cmd):
++        try:
++            return subprocess.check_output(cmd, text=True).strip()
++        except Exception:
++            return None
++
++    batt = _run("pmset", "-g", "batt")
++    return {"nice": os.nice(0), "ps": _run("ps", "-o", "pri=,stat=", "-p", str(os.getpid())),
++            "power": batt.splitlines()[0] if batt else None, "loadavg": list(os.getloadavg())}
++
++
++# measured code: plugin source + harness. The explicit diff options keep user git config (color,
++# external diff, textconv, renames, algorithm, prefixes) out of the digest; --binary makes binary
++# changes part of it (not "Binary files differ").
++_CODE_PATHS = ("src", "paper_benchmarks")
++_DIFF_CMD = ("diff", "--no-color", "--no-ext-diff", "--no-textconv", "--no-renames", "--diff-algorithm=myers",
++             "--src-prefix=a/", "--dst-prefix=b/", "--binary", "HEAD", "--", *_CODE_PATHS)
++
++
++def _code_state(repo_root=None, timeout=10):
++    """Content identity of the measured code, so a dirty run is bound to one exact tree.
++
++    ``tracked_diff_sha256`` hashes the bytes of ``git <_DIFF_CMD>``, ``untracked`` maps each
++    untracked, non-ignored file under ``_CODE_PATHS`` to its SHA256, and ``combined_sha256`` is
++    sha256(utf-8 of tracked_diff_sha256 + "\\n<path> <sha256>" per untracked file, sorted by path).
++    Read-only and guarded: every git call has a timeout, a failure leaves its fields None.
++    """
++    import hashlib
++    import subprocess
++
++    env = dict(os.environ, GIT_OPTIONAL_LOCKS="0")  # never take index.lock mid-run
++
++    def _git(*a, cwd):
++        try:
++            return subprocess.run(["git", *a], cwd=cwd, env=env, stdin=subprocess.DEVNULL,
++                                  stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
++                                  timeout=timeout, check=True).stdout
++        except Exception:
++            return None
++
++    state = {"base_commit": None, "dirty": None, "tracked_diff_sha256": None, "untracked": None,
++                 "combined_sha256": None, "tracked_diff_cmd": "git " + " ".join(_DIFF_CMD)}
++    try:
++        top = _git("rev-parse", "--show-toplevel", cwd=repo_root or os.path.dirname(os.path.abspath(__file__)))
++        if top is None:
++            return state
++        root = os.fsdecode(top.strip())
++        head = _git("rev-parse", "HEAD", cwd=root)
++        state["base_commit"] = head.decode().strip() if head else None
++        diff = _git(*_DIFF_CMD, cwd=root)
++        if diff is not None:
++            state["tracked_diff_sha256"] = hashlib.sha256(diff).hexdigest()
++        others = _git("ls-files", "--others", "--exclude-standard", "-z", "--", *_CODE_PATHS, cwd=root)
++        if others is not None:
++            untracked = {}
++            for p in sorted(os.fsdecode(x) for x in others.split(b"\0") if x):
++                try:
++                    with open(os.path.join(root, p), "rb") as f:
++                        untracked[p] = hashlib.sha256(f.read()).hexdigest()
++                except OSError:  # vanished or unreadable between listing and hashing
++                    untracked[p] = None
++            state["untracked"] = untracked
++        if diff is not None and others is not None:
++            state["dirty"] = bool(diff) or bool(state["untracked"])
++            lines = [state["tracked_diff_sha256"], *(f"{p} {h}" for p, h in state["untracked"].items())]
++            state["combined_sha256"] = hashlib.sha256(os.fsencode("\n".join(lines))).hexdigest()
++    except Exception:  # provenance must never abort a run; unknown fields stay None
++        pass
++    return state
++
++
++def _env_freeze_sha256(timeout=60):
++    """SHA256 of the stdout bytes of ``<sys.executable> -m pip freeze``; None on any failure."""
++    import hashlib
++    import subprocess
++
++    try:
++        out = subprocess.run([sys.executable, "-m", "pip", "freeze"], stdin=subprocess.DEVNULL,
++                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=timeout,
++                             check=True, env={**{k: v for k, v in os.environ.items() if k != "PYTHONPATH"},
++                                                  "PIP_DISABLE_PIP_VERSION_CHECK": "1"}).stdout
++    except Exception:
++        return None
++    return hashlib.sha256(out).hexdigest()
++
++
++def _write_provenance(args, csv_path, t_start, state_start=None, code_start=None, env_diffs=None):
++    """Sidecar JSON so every record carries versions, host, commit, code/env digests and timestamps."""
++    import json
++    import platform
++    import subprocess
++    from importlib import metadata
++
++    import napari
++    from qtpy import API_NAME, QT_VERSION
++
++    def _ver(dist):
++        try:
++            return metadata.version(dist)
++        except metadata.PackageNotFoundError:
++            return None
++
++    def _git(*a):
++        try:
++            return subprocess.check_output(
++                ["git", *a], cwd=os.path.dirname(os.path.abspath(__file__)), text=True
++            ).strip()
++        except Exception:
++            return None
++
++    backend = backend_resolved = None
++    try:
++        from napari.layers.shapes._shapes_models import Polygon
++        from napari.layers.shapes._shapes_models import shape as _shape_mod
++
++        backend = repr(_shape_mod.TRIANGULATION_BACKEND)
++        backend_resolved = Polygon._set_meshes.__name__  # e.g. _set_meshes_compiled_bermuda
++    except Exception:
++        pass
++    plugin_file = None
++    try:
++        mod = __import__("napari_turbobox" if args.tool == "modern" else "napari_bbox")
++        plugin_file = getattr(mod, "__file__", None)
++    except Exception:
++        pass
++    # True only if the code identity is known at both ends and identical (unknown -> False)
++    code_end = _code_state()
++    code_unchanged = bool(code_start and code_start["combined_sha256"] is not None
++                          and all(code_start[k] == code_end[k] for k in ("base_commit", "combined_sha256")))
++    meta = {
++        "csv": os.path.basename(csv_path), "tool": args.tool, "legacy_sync": args.legacy_sync, "edit_view": args.edit_view,
++        "drag_protocol": args.drag_protocol, "tri_backend_requested": args.tri_backend, "thumbnails": args.thumbnails, "ns": args.ns,
++        "ortho_follow": args.ortho_follow, "warmup": args.warmup, "pacing": args.pacing,
++        "replicate": args.replicate, "drags": args.drags,
++        "started": t_start, "finished": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
++        "harness_commit": _git("rev-parse", "HEAD"), "harness_branch": _git("rev-parse", "--abbrev-ref", "HEAD"),
++        "harness_dirty": bool(_git("status", "--porcelain", "--untracked-files=no")),
++        "code_state": code_start, "code_state_end": code_end, "code_state_unchanged": code_unchanged,
++        "env_freeze_sha256": _env_freeze_sha256(),
++        "python": sys.version.split()[0], "napari": napari.__version__, "numpy": np.__version__,
++        "vispy": _ver("vispy"), "qt_api": API_NAME, "qt_version": QT_VERSION,
++        "qt_platform": QApplication.instance().platformName(), "triangulation_backend": backend,
++        "triangulation_mesher": backend_resolved, "pyqt_or_pyside": _ver("PyQt6") or _ver("PyQt5") or _ver("PySide6"),
++        "napari_turbobox": _ver("napari-turbobox"), "napari_bbox": _ver("napari-bbox"), "plugin_file": plugin_file,
++        "host": platform.node(), "machine": platform.machine(), "os": platform.platform(),
++        "gc_enabled": gc.isenabled(), "gc_threshold": gc.get_threshold(),
++        "process_state_start": state_start, "process_state_end": _process_state(),
++        "reference_env": REFERENCE_ENV,
++        "env_differs_from_reference": {k: list(v) for k, v in (env_diffs or {}).items()},
++    }
++    with open(csv_path.replace(".csv", ".meta.json"), "w") as f:
++        json.dump(meta, f, indent=1)
++
++
+ if __name__ == "__main__":
+     main()
+diff --git a/paper_benchmarks/make_final_figures.py b/paper_benchmarks/make_final_figures.py
+index 5f9b781..023055e 100644
+--- a/paper_benchmarks/make_final_figures.py
++++ b/paper_benchmarks/make_final_figures.py
+@@ -6,26 +6,31 @@ aggregates them at the **replicate level** (independent unit = run; one aggregat
+ per run = its median per-sub-update latency), and emits both the manuscript
+ figures and the tidy summary/speedup tables.
+ 
+-Statistics (independent unit = replicate run, k=5; NO per-frame pseudoreplication):
+-median-of-run-medians, bootstrap 95% CI, p95/p99 (median of per-run), commit
+-median; one-sided Welch's t-test (H1: TurboBox faster) on the per-run medians;
+-speedup effect size with bootstrap CI.
++Statistics (independent unit = replicate run; NO per-frame pseudoreplication):
++median of the per-run medians with a percentile-bootstrap 95 % interval over the
++run medians (with k = 5 runs this interval equals their range), p95/p99 as the
++median of the per-run percentiles, median end-of-drag 3D update, and the
++speed-up (napari-bbox / TurboBox) as the ratio of the two medians, with the
++2.5-97.5 percentile interval of bootstrap ratios of resampled run medians.
++No significance test.
+ 
+ Inputs (all under ``--results``, default ``paper_results``):
+-    drag_session_<tool>_rep<r>.csv        per-run summary (panels a + b)
+-    drag_session_dist_<tool>_rep<r>.csv   per-sub-update distribution (supp S1)
+-    benchmark_memory.csv                  total real-viewer memory (panel c)
++    drag_session_<tag>_rep<r>.csv         per-run summary (panels a + b)
++    drag_session_dist_<tag>_rep<r>.csv    every sub-update time (panel e)
++    benchmark_memory.csv                  memory added by the box layer (panel c)
+     benchmark_memory_datastructure.csv    store+index data-structure bytes (panel c)
+-    benchmark_resolution.csv              per-update latency vs image size (supp S2)
++    benchmark_resolution.csv              update time vs image size (panel f)
++Optional ``--large-n DIR``: per-run CSVs of a large-N run (panel a only); its
++configurations are added to panels (a) and (d) with open markers.
+ 
+ Outputs (written under ``--out``, default ``paper_results``):
+     drag_session_summary.csv, drag_session_speedup.csv   derived tidy tables
+-    Figure3_performance.{png,pdf}   ONE 6-panel composite (no separate supplement):
+-        (a) realistic N-sweep  (b) view scaling  (c) memory
+-        (d) speed-up effect size  (e) latency distribution  (f) resolution independence
++    Figure3_performance.{png,pdf}   one 6-panel composite:
++        (a) N-sweep, four-viewer layout  (b) view scaling  (c) memory
++        (d) speed-up  (e) update-time distribution  (f) image size
+ 
+-Honest labels: per-update response time (ms), real viewer (sync + ShapeList rebuild;
+-GPU rasterization of the hidden canvas is excluded). 33 ms (30 Hz) budget marked.
++Labels: time per update (ms) in real, hidden napari viewers: synchronization,
++per-view geometry update and thumbnail, no rendering. 33 ms (30 Hz) budget marked.
+ """
+ import argparse
+ import glob
+@@ -35,7 +40,6 @@ from pathlib import Path
+ import matplotlib.pyplot as plt
+ import numpy as np
+ import pandas as pd
+-from scipy import stats
+ 
+ THR = 33.0
+ # Consistent two-colour code across EVERY panel so the reader learns it once:
+@@ -89,19 +93,12 @@ def _boot_ci(v, fn=np.median, n=10000):
+     return float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))
+ 
+ 
+-def _welch_one_sided(a, b):  # H1: a (modern) < b (legacy)
+-    a, b = np.asarray(a, float), np.asarray(b, float)
+-    t, p = stats.ttest_ind(a, b, equal_var=False, alternative="less")
+-    va, vb, na, nb = a.var(ddof=1), b.var(ddof=1), len(a), len(b)
+-    df = (va / na + vb / nb) ** 2 / ((va / na) ** 2 / (na - 1) + (vb / nb) ** 2 / (nb - 1))
+-    return float(t), float(df), float(p)
+-
+-
+ def _ratio_ci(leg, mod, n=10000):
++    """Speed-up = ratio of the medians of the run medians, with a percentile-bootstrap interval."""
+     leg, mod = np.asarray(leg, float), np.asarray(mod, float)
+     bs = [np.median(_rng.choice(leg, len(leg), True)) / np.median(_rng.choice(mod, len(mod), True))
+           for _ in range(n)]
+-    return float(np.median(bs)), float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))
++    return float(np.median(leg) / np.median(mod)), float(np.percentile(bs, 2.5)), float(np.percentile(bs, 97.5))
+ 
+ 
+ def aggregate(results_dir: Path, out_dir: Path):
+@@ -119,24 +116,23 @@ def aggregate(results_dir: Path, out_dir: Path):
+     for (tool, panel, n, v), g in df.groupby(["tool", "panel", "n_boxes", "n_viewers"], dropna=False):
+         rm = g["sub_median_ms"].values  # one median per replicate run (k=5)
+         lo, hi = _boot_ci(rm)
+-        rec = dict(tool=tool, panel=panel, n_boxes=n, n_viewers=v, k=len(g),
+-                   median_ms=float(np.median(rm)), ci_lo=lo, ci_hi=hi,
+-                   p95_ms=float(np.median(g["sub_p95_ms"])), p99_ms=float(np.median(g["sub_p99_ms"])),
+-                   commit_median_ms=float(np.median(g["commit_median_ms"])))
++        rec = {"tool": tool, "panel": panel, "n_boxes": n, "n_viewers": v, "k": len(g),
++                   "median_ms": float(np.median(rm)), "ci_lo": lo, "ci_hi": hi,
++                   "p95_ms": float(np.median(g["sub_p95_ms"])), "p99_ms": float(np.median(g["sub_p99_ms"])),
++                   "commit_median_ms": float(np.median(g["commit_median_ms"]))}
+         rows.append(rec)
+         agg[(tool, panel, n, str(v))] = (rec, rm)
+     S = pd.DataFrame(rows)
+ 
+     sp_rows = []
+-    for n in (10, 50, 100, 200, 500, 1000):
++    for n in sorted(S[S.panel == "a"].n_boxes.unique()):
+         km, kl = ("modern", "a", n, "3+3D"), ("legacy", "a", n, "3+3D")
+         if km not in agg or kl not in agg:
+             continue
+         (_, mr), (_, lr) = agg[km], agg[kl]
+-        _t, _df, p = _welch_one_sided(mr, lr)
+         sp, slo, shi = _ratio_ci(lr, mr)
+-        sp_rows.append(dict(n_boxes=n, speedup=sp, sp_lo=slo, sp_hi=shi, p_one_sided=p))
+-    sp = pd.DataFrame(sp_rows)
++        sp_rows.append({"n_boxes": n, "speedup": sp, "sp_lo": slo, "sp_hi": shi})
++    sp = pd.DataFrame(sp_rows, columns=["n_boxes", "speedup", "sp_lo", "sp_hi"])
+ 
+     out_dir.mkdir(parents=True, exist_ok=True)
+     S.to_csv(out_dir / "drag_session_summary.csv", index=False)
+@@ -157,30 +153,50 @@ def _thr(ax, fs=6.8, ha="right", x=0.99, y=THR, va="bottom"):
+             bbox={"facecolor": "white", "alpha": 0.78, "edgecolor": "none", "pad": 0.5})
+ 
+ 
++def _log_limits(values, pad=1.5):
++    """Decade-aligned log-axis limits that keep every plotted value visible."""
++    v = np.asarray([x for x in np.ravel(values) if np.isfinite(x) and x > 0], float)
++    lo = 10 ** np.floor(np.log10(v.min() / pad))
++    hi = 10 ** np.ceil(np.log10(max(v.max(), THR) * pad))
++    return lo, hi
++
++
+ def _set_panel_label(ax, label):
+     """Place (a)-(f) panel label in the upper left corner outside the axes."""
+     ax.text(-0.15, 1.07, label, transform=ax.transAxes,
+             fontsize=9.5, fontweight="bold", va="top", ha="right")
+ 
+ 
+-def panel_a(ax, S):
++def panel_a(ax, S, L=None):
+     # Top-to-bottom legend order matching curve values at rightmost edge:
+     # 1. napari-bbox (editing)
+-    # 2. napari-bbox (3D update)
+-    # 3. TurboBox (3D update)
++    # 2. napari-bbox (end-of-drag update: 3D view, thumbnails)
++    # 3. TurboBox (end-of-drag update)
+     # 4. TurboBox (editing)
+     _set_panel_label(ax, "(a)")
+     a = S[S.panel == "a"].sort_values("n_boxes")
+     m, g = a[a.tool == "modern"], a[a.tool == "legacy"]
+     h_bb_edit, = ax.plot(g.n_boxes, g.median_ms, "-s", color=C_BB, ms=4, label="napari-bbox (editing)")
+     h_bb_3d, = ax.plot(g.n_boxes, g.commit_median_ms, "--^", color=C_BB, ms=3.5, mfc="white", alpha=0.6,
+-                       label=r"napari-bbox ($3\mathrm{D}$ update)")
++                       label="napari-bbox (end of drag)")
+     h_tb_3d, = ax.plot(m.n_boxes, m.commit_median_ms, "--D", color=C_TB, ms=3.5, mfc="white", alpha=0.6,
+-                       label=r"TurboBox ($3\mathrm{D}$ update)")
++                       label="TurboBox (end of drag)")
+     h_tb_edit, = ax.plot(m.n_boxes, m.median_ms, "-o", color=C_TB, ms=4, label="TurboBox (editing)")
++    vals = [m.median_ms, g.median_ms, m.commit_median_ms, g.commit_median_ms]
++    if L is not None and not L.empty:
++        # Large-N run (fewer drags per run): open markers, joined to the main curves by dotted lines.
++        la = L[L.panel == "a"].sort_values("n_boxes")
++        for tool, df, col, mk in (("legacy", g, C_BB, "s"), ("modern", m, C_TB, "o")):
++            x = la[la.tool == tool]
++            if x.empty:
++                continue
++            xs = np.r_[df.n_boxes.values[-1:], x.n_boxes.values]
++            ax.plot(xs, np.r_[df.median_ms.values[-1:], x.median_ms.values], ":", color=col, lw=1.0)
++            ax.plot(x.n_boxes, x.median_ms, mk, color=col, ms=4, mfc="white")
++            vals.append(x.median_ms)
+     ax.set_xscale("log")
+     ax.set_yscale("log")
+-    ax.set_ylim(10, 2000)
++    ax.set_ylim(*_log_limits(np.concatenate([np.asarray(v, float) for v in vals])))
+     _thr(ax, ha="left", x=0.03)  # park at left, where both curves sit below 33 ms (clear)
+     ax.set_xlabel(r"Number of boxes ($N$)")
+     ax.set_ylabel(YL)
+@@ -214,18 +230,18 @@ def panel_b(ax, S):
+                 off, ha, va = (-4, 5), "right", "bottom"
+             else:
+                 off, ha, va = (0, 5), "center", "bottom"
+-            ax.annotate(f"{sp:.0f}" + r"$\times$", (rm.n_viewers, rm.median_ms), textcoords="offset points",
++            ax.annotate(f"{sp:.1f}" + r"$\times$", (rm.n_viewers, rm.median_ms), textcoords="offset points",
+                         xytext=off, fontsize=6.8, color=C_NEUTRAL, ha=ha, va=va)
+     ax.set_xscale("log", base=2)
+     ax.set_yscale("log")
+-    ax.set_ylim(8, 1500)
++    ax.set_ylim(*_log_limits(np.r_[m.ci_lo.values, g.ci_hi.values, m.median_ms.values, g.median_ms.values]))
+     _thr(ax, ha="left", x=0.03)  # left side is clear at 33 ms
+     ax.set_xticks([1, 2, 4, 8])
+     ax.set_xticklabels(["1", "2", "4", "8"])
+     ax.set_xlabel(r"Synchronized $2\mathrm{D}$ views ($V$), $N = 10^2$")
+     ax.set_ylabel(YL)
+     ax.set_title(r"View scaling ($V$, $N = 10^2$)", pad=4)
+-    ax.legend(handles=[h_bb, h_tb], loc="upper left", framealpha=0.85)
++    ax.legend(handles=[h_bb, h_tb], loc="lower right", framealpha=0.85)  # keeps the 33 ms label (left) free
+     ax.grid(True, which="both", alpha=0.3)
+ 
+ 
+@@ -248,17 +264,25 @@ def panel_c(ax, mem, si):
+     ax.set_xscale("log")
+     ax.set_yscale("log")
+     ax.set_xlabel(r"Number of boxes ($N$)")
+-    ax.set_ylabel(r"Live memory ($\mathrm{MB}$)")
++    ax.set_ylabel(r"Memory added ($\mathrm{MiB}$)")
+     ax.set_title("Memory footprint", pad=4)
+     ax.legend(handles=handles, loc="upper left", framealpha=0.85)
+     ax.grid(True, which="both", alpha=0.3)
+ 
+ 
+-def panel_d(ax, sp):
++def panel_d(ax, sp, sp_large=None):
+     _set_panel_label(ax, "(d)")
++    if sp.empty:
++        return
+     sp = sp.sort_values("n_boxes")
+     ax.errorbar(sp.n_boxes, sp.speedup, yerr=[sp.speedup - sp.sp_lo, sp.sp_hi - sp.speedup],
+                 fmt="-o", color=C_NEUTRAL, ms=4, capsize=2.5)
++    if sp_large is not None and not sp_large.empty:
++        sl = sp_large.sort_values("n_boxes")
++        ax.plot(np.r_[sp.n_boxes.values[-1:], sl.n_boxes.values], np.r_[sp.speedup.values[-1:], sl.speedup.values],
++                ":", color=C_NEUTRAL, lw=1.0)
++        ax.errorbar(sl.n_boxes, sl.speedup, yerr=[sl.speedup - sl.sp_lo, sl.sp_hi - sl.speedup],
++                    fmt="o", color=C_NEUTRAL, mfc="white", ms=4, capsize=2.5)
+     ax.axhline(1, color="gray", lw=0.8, ls="--")
+     ax.text(0.98, 1, "equal speed ", color="gray", va="bottom", ha="right", fontsize=6.5,
+             transform=ax.get_yaxis_transform())
+@@ -293,17 +317,24 @@ def main():
+     ap = argparse.ArgumentParser(description=__doc__)
+     ap.add_argument("--results", default="paper_results", help="dir with the input CSVs")
+     ap.add_argument("--out", default="paper_results", help="dir for figures + derived tables")
++    ap.add_argument("--large-n", default=None,
++                    help="dir with per-run CSVs of a large-N run, added to panels (a) and (d) with open markers")
++    ap.add_argument("--update-paper-figures", action="store_true",
++                    help="also overwrite paper/figures/Figure3_performance.* (tracked files)")
+     a = ap.parse_args()
+     res, out = Path(a.results), Path(a.out)
+     out.mkdir(parents=True, exist_ok=True)
+ 
+     S, sp = aggregate(res, out)
++    L = sp_large = None
++    if a.large_n:
++        L, sp_large = aggregate(Path(a.large_n), Path(a.large_n))
+ 
+     # ONE 6-panel performance composite (no separate supplement):
+     # (a) realistic latency  (b) view scaling  (c) memory
+     # (d) speed-up           (e) distribution   (f) resolution
+     fig, ax = plt.subplots(nrows=2, ncols=3, figsize=(FIG_WIDTH, FIG_HEIGHT), layout="constrained")
+-    panel_a(ax[0, 0], S)
++    panel_a(ax[0, 0], S, L)
+     panel_b(ax[0, 1], S)
+     try:
+         mem = pd.read_csv(res / "benchmark_memory.csv")
+@@ -312,7 +343,7 @@ def main():
+         panel_c(ax[0, 2], mem, si)
+     except FileNotFoundError:
+         ax[0, 2].text(0.5, 0.5, "memory data pending", ha="center")
+-    panel_d(ax[1, 0], sp)
++    panel_d(ax[1, 0], sp, sp_large)
+     # Panel (e) only: discard the first drag of each run (drag 0, all 60 sub-updates)
+     # as warm-up, so the one-time cold start of building fresh viewers does not dominate
+     # the violin. This is an analysis-time filter on a COPY of the raw per-update data;
+@@ -337,7 +368,7 @@ def main():
+ 
+     # Also update paper/figures if present
+     repo_figures = Path(__file__).resolve().parent.parent / "paper" / "figures"
+-    if repo_figures.exists():
++    if a.update_paper_figures and repo_figures.exists():
+         for ext in ("png", "pdf"):
+             fig.savefig(repo_figures / f"Figure3_performance.{ext}", dpi=300)
+             print(f"wrote {repo_figures / f'Figure3_performance.{ext}'}")
+@@ -369,7 +400,7 @@ def _violin(ax, d, cfg_key, title):
+         ax.set_xticks(range(1, len(ticks) + 1))
+         ax.set_xticklabels(ticks, fontsize=7.2)
+         ax.set_yscale("log")
+-        ax.set_ylim(10, 1500)
++        ax.set_ylim(*_log_limits(np.concatenate(data), pad=1.2))
+         _thr(ax, ha="right", x=0.98)
+     ax.set_ylabel(YL)
+     ax.set_title(title, pad=4)
+diff --git a/paper_benchmarks/memory_benchmark.py b/paper_benchmarks/memory_benchmark.py
+index 38705e2..8387443 100644
+--- a/paper_benchmarks/memory_benchmark.py
++++ b/paper_benchmarks/memory_benchmark.py
+@@ -185,9 +185,9 @@ def measure_datastructure(n_boxes: int, plugin_name: str) -> dict | None:
+             tracemalloc.stop()
+             store_b = layer._bbox_store._bboxes.nbytes
+             idx_b = _index_bytes(layer._spatial_index)
+-            return dict(tool="modern", n_boxes=n_boxes, store_bytes=store_b, index_bytes=idx_b,
+-                        store_plus_index=store_b + idx_b, total_alloc_bytes=max(0, total),
+-                        store_dtype=str(layer._bbox_store._bboxes.dtype))
++            return {"tool": "modern", "n_boxes": n_boxes, "store_bytes": store_b, "index_bytes": idx_b,
++                        "store_plus_index": store_b + idx_b, "total_alloc_bytes": max(0, total),
++                        "store_dtype": str(layer._bbox_store._bboxes.dtype)}
+         elif plugin_name == "napari-bbox":
+             from napari_bbox import BoundingBoxLayer
+             tracemalloc.start()
+@@ -197,8 +197,8 @@ def measure_datastructure(n_boxes: int, plugin_name: str) -> dict | None:
+             after = tracemalloc.take_snapshot()
+             total = sum(s.size_diff for s in after.compare_to(base, "lineno"))
+             tracemalloc.stop()
+-            return dict(tool="legacy", n_boxes=n_boxes, store_bytes="", index_bytes="",
+-                        store_plus_index="", total_alloc_bytes=max(0, total), store_dtype="")
++            return {"tool": "legacy", "n_boxes": n_boxes, "store_bytes": "", "index_bytes": "",
++                        "store_plus_index": "", "total_alloc_bytes": max(0, total), "store_dtype": ""}
+         return None
+     except Exception as e:
+         print(f"❌ Error measuring data structure: {e}")
+diff --git a/paper_benchmarks/resolution_benchmark.py b/paper_benchmarks/resolution_benchmark.py
+index 7277913..4b4150e 100644
+--- a/paper_benchmarks/resolution_benchmark.py
++++ b/paper_benchmarks/resolution_benchmark.py
+@@ -24,9 +24,9 @@ from pathlib import Path
+ import numpy as np
+ 
+ os.environ.pop("QT_QPA_PLATFORM", None)
+-from qtpy.QtWidgets import QApplication  # noqa: E402
++from qtpy.QtWidgets import QApplication
+ 
+-from paper_benchmarks.drag_session_benchmark import (  # noqa: E402
++from paper_benchmarks.drag_session_benchmark import (
+     measure_drag_session,
+     setup_modern,
+ )
+@@ -51,8 +51,8 @@ def measure_resolution(image_xy: int) -> dict:
+         subs.extend(s)
+     for v in viewers:
+         v.close()
+-    return dict(image_xy=image_xy, n_boxes=N_BOXES, n_viewers=N_VIEWERS,
+-                sub_median_ms=float(np.median(subs)), sub_p95_ms=float(np.percentile(subs, 95)))
++    return {"image_xy": image_xy, "n_boxes": N_BOXES, "n_viewers": N_VIEWERS,
++                "sub_median_ms": float(np.median(subs)), "sub_p95_ms": float(np.percentile(subs, 95))}
+ 
+ 
+ def main():
+diff --git a/paper_benchmarks/sync_adapter.py b/paper_benchmarks/sync_adapter.py
+index c55ae89..f4be0d6 100644
+--- a/paper_benchmarks/sync_adapter.py
++++ b/paper_benchmarks/sync_adapter.py
+@@ -11,10 +11,20 @@ benchmark driver can treat napari-turbobox and napari-bbox identically.
+   ``layer.data = current`` per update, 3D viewers get a single coalesced
+   ``layer.data = current`` at ``end_edit_session`` (mirroring the
+   3D-coalescing that TurboBox provides natively via ``sync_mode="on_commit"``).
++- :class:`NapariBboxPerBoxAdapter` does the same with napari-bbox's public
++  per-box API (``selected_data`` / ``remove_selected`` / ``add``) instead of a
++  full ``layer.data`` assignment, so each viewer rebuilds only the edited box;
++  optionally with thumbnails blocked during the edit session (as TurboBox does).
++- :class:`TurboBoxMouseAdapter` and :class:`NapariBboxMouseAdapter` drag the box
++  with the mouse in the first (XY) view instead: press, moves and release go
++  through napari's mouse dispatch into each tool's own drag handler. TurboBox's
++  handler updates the other views through its store; for napari-bbox the other
++  views follow per box as in :class:`NapariBboxPerBoxAdapter`.
+ """
+ 
+ from __future__ import annotations
+ 
++import contextlib
+ from abc import ABC, abstractmethod
+ 
+ import numpy as np
+@@ -91,3 +101,349 @@ class NapariBboxAdapter(SyncAdapter):
+                 layer.data = self._pending
+         self._in_session = False
+         self._pending = None
++
++
++class NapariBboxPerBoxAdapter(SyncAdapter):
++    """Per-box napari-bbox sync through its public layer API.
++
++    Each update removes the edited box from every live layer and adds the
++    new box at the end, so the application keeps the index permutation
++    ``perm`` (layer position -> logical box id), identical in all layers.
++    3D layers receive the final box once at ``end_edit_session``.
++
++    ``block_thumbnails``: symmetric to TurboBox, which skips thumbnails inside an
++    edit session and rasterizes them once when the session ends: napari-bbox's
++    public ``block_thumbnail_update()`` during the updates, one thumbnail per
++    layer at the end.
++
++    ``quiet``: ``remove_selected()`` and ``add()`` each emit two napari data
++    events (removing/removed, adding/added), and the viewer answers every one
++    by recomputing the layer extents, which is O(N). napari-bbox's own mouse
++    drag emits one ``changing`` event at its first move and one ``changed``
++    event at the release, none in between. ``quiet`` does the same: napari's
++    public ``events.data.blocker()`` during the drag, then one ``changed`` data
++    event per layer for the rows that hold a different box than before. It
++    also selects the box by adding it to the (empty) selection set instead of
++    assigning the selection, which skips the selection setter's side effects
++    (copying the box's style into the layer's current style, and an edge-width
++    event that pushes the whole mesh to vispy); the box's style is passed to
++    ``add()`` instead.
++    """
++
++    def __init__(self, layers: list, ndisplays: list[int], block_thumbnails: bool = False,
++                 quiet: bool = False):
++        assert len(layers) == len(ndisplays)
++        self._live_layers = [l for l, nd in zip(layers, ndisplays) if nd == 2]
++        self._commit_layers = [l for l, nd in zip(layers, ndisplays) if nd == 3]
++        self._follow_layers = self._live_layers  # live layers updated through remove/add
++        self._block_thumbnails = block_thumbnails
++        self._quiet = quiet
++        n = len(layers[0].data)
++        self._perm = np.arange(n)
++        self._perm_commit = np.arange(n)
++        self._in_session = False
++        self._pending = {}
++        self._lo_live = None  # first live-layer row replaced since the last data event
++
++    def _replace(self, layer, pos: int, box: np.ndarray) -> None:
++        # remove_selected() and add() each refresh the layer and rasterize its
++        # thumbnail. The thumbnail after the removal shows a transient state that
++        # add() replaces at once, so it is skipped with napari-bbox's public
++        # block_thumbnail_update(): one thumbnail per replaced box, as for TurboBox.
++        with contextlib.ExitStack() as stack:
++            if self._quiet:
++                stack.enter_context(layer.events.data.blocker())
++            style = {}
++            with layer.block_thumbnail_update():
++                if self._quiet:
++                    assert not layer.selected_data
++                    style = {"edge_color": layer.edge_color[pos], "face_color": layer.face_color[pos],
++                             "edge_width": layer.edge_width[pos]}
++                    layer.selected_data.add(pos)
++                else:
++                    layer.selected_data = {pos}
++                layer.remove_selected()
++            layer.add(np.asarray(box, float)[None], **style)
++
++    def _announce(self, layers: list, lo) -> None:
++        """With ``quiet``: one ``changed`` data event per layer for rows ``lo`` to the end.
++
++        remove/add moved each edited box to the end, so from the first removed
++        row on every row holds a different box than before the drag.
++        """
++        if not self._quiet or lo is None:
++            return
++        from napari.layers.base._base_constants import ActionType
++
++        for layer in layers:
++            rows = tuple(range(lo, layer.nbounding_boxes))
++            layer.events.data(
++                value=layer.data,
++                action=ActionType.CHANGED,
++                data_indices=rows,
++                vertex_indices=((),) * len(rows),
++            )
++
++    def begin_edit_session(self) -> None:
++        self._in_session = True
++        self._pending = {}
++
++    def _follow(self, idx: int, box: np.ndarray) -> None:
++        pos = int(np.flatnonzero(self._perm == idx)[0])
++        for layer in self._follow_layers:
++            if self._block_thumbnails and self._in_session:
++                with layer.block_thumbnail_update():
++                    self._replace(layer, pos, box)
++            else:
++                self._replace(layer, pos, box)
++        self._perm = np.append(np.delete(self._perm, pos), idx)
++        self._lo_live = pos if self._lo_live is None else min(self._lo_live, pos)
++        self._pending[idx] = np.asarray(box, float)
++
++    def _announce_live(self) -> None:
++        self._announce(self._follow_layers, self._lo_live)
++        self._lo_live = None
++
++    def update_box(self, idx: int, box: np.ndarray) -> None:
++        self._follow(idx, box)
++        if not self._in_session:
++            self._announce_live()
++            self._flush()
++
++    def _flush(self) -> None:
++        lo = None
++        for idx, box in self._pending.items():
++            pos = int(np.flatnonzero(self._perm_commit == idx)[0])
++            for layer in self._commit_layers:
++                self._replace(layer, pos, box)
++            self._perm_commit = np.append(np.delete(self._perm_commit, pos), idx)
++            lo = pos if lo is None else min(lo, pos)
++        self._announce(self._commit_layers, lo)
++        self._pending = {}
++
++    def end_edit_session(self) -> None:
++        was_in_session = self._in_session
++        self._in_session = False
++        self._announce_live()
++        self._flush()
++        if self._block_thumbnails and was_in_session:
++            for layer in self._follow_layers:
++                layer._update_thumbnail()
++
++
++class _MouseEvent:
++    """The attributes of napari's mouse event that the drag handlers read."""
++
++    def __init__(self, type_: str, position, dims_displayed):
++        self.type = type_
++        self.position = tuple(float(c) for c in position)
++        self.modifiers = []
++        self.dims_displayed = [int(d) for d in dims_displayed]
++        self.handled = False
++        self.is_dragging = type_ != "mouse_press"
++        self.view_direction = None
++        self.button = 1
++
++
++class _MouseDrag:
++    """One drag in ``layer`` through napari's layer-level mouse dispatch.
++
++    The press, every move and the release go through napari's
++    ``mouse_press_callbacks`` / ``mouse_move_callbacks`` / ``mouse_release_callbacks``,
++    so all drag callbacks of the layer run as for a mouse in the canvas. The
++    canvas-level work of a real mouse (cursor position, status bar, viewer
++    callbacks) is not run, for either tool. Only the hit test at the press is
++    given: the layer method ``hit_name`` reports ``hit_value`` (the box the
++    benchmark drags, whatever box lies on top there).
++    """
++
++    def __init__(self, layer, position, hit_name: str, hit_value):
++        from napari.utils.interactions import mouse_press_callbacks
++
++        self._layer = layer
++        setattr(layer, hit_name, lambda *a, **k: hit_value)
++        try:
++            mouse_press_callbacks(layer, self._event("mouse_press", position))
++        finally:
++            delattr(layer, hit_name)
++        if not layer._mouse_drag_gen:
++            raise RuntimeError("the press did not start a drag in the layer")
++
++    def _event(self, type_: str, position):
++        from napari.utils._proxies import ReadOnlyWrapper
++
++        event = _MouseEvent(type_, position, self._layer._slice_input.displayed)
++        return ReadOnlyWrapper(event, exceptions=("handled",))
++
++    def move(self, position) -> None:
++        from napari.utils.interactions import mouse_move_callbacks
++
++        mouse_move_callbacks(self._layer, self._event("mouse_move", position))
++
++    def release(self, position) -> None:
++        from napari.utils.interactions import mouse_release_callbacks
++
++        mouse_release_callbacks(self._layer, self._event("mouse_release", position))
++        if self._layer._mouse_drag_gen:
++            raise RuntimeError("a drag callback of the layer did not finish on release")
++
++
++def _drag_kind(start: np.ndarray, end: np.ndarray, displayed) -> tuple[bool, np.ndarray]:
++    """Resize or translation, and the grabbed point, of a drag from ``start`` to ``end``.
++
++    The benchmark's drags either keep the size (translation, grabbed at the centre)
++    or keep the min corner (resize, grabbed at the max corner in the view).
++    """
++    start = np.asarray(start, float)
++    end = np.asarray(end, float)
++    resize = not np.allclose(end[1] - end[0], start[1] - start[0])
++    if resize and not np.allclose(end[0], start[0]):
++        raise ValueError("a resize drag keeps the min corner of the box fixed")
++    grab = start.mean(0)
++    if resize:
++        grab[list(displayed)] = start[1][list(displayed)]
++    return resize, grab
++
++
++class _MouseAdapter(SyncAdapter):
++    """Drags the box with the mouse in the edited view; subclasses sync the other views.
++
++    ``prepare_drag`` is the press (untimed, before the drag), ``update_box`` one mouse
++    move and ``end_edit_session`` the release. The cursor follows the grabbed point
++    of the box, so the handler puts the box where the benchmark's trajectory says.
++    """
++
++    def __init__(self, edit_layer, hit_name: str):
++        self._edit_layer = edit_layer
++        self._hit_name = hit_name
++        edit_layer.mode = "select"
++        self._drag = None  # (idx, _MouseDrag, resize, grab - grabbed corner or centre)
++        self._cursor = None
++
++    def _hit_value(self, idx: int, resize: bool):
++        raise NotImplementedError
++
++    def _current_box(self, idx: int) -> np.ndarray:
++        raise NotImplementedError
++
++    def prepare_drag(self, idx: int, start: np.ndarray, end: np.ndarray) -> None:
++        """Mouse press on box ``idx`` in the edited view."""
++        assert self._drag is None
++        resize, grab = _drag_kind(start, end, self._edit_layer._slice_input.displayed)
++        start = np.asarray(start, float)
++        offset = grab - (start[1] if resize else start.mean(0))
++        drag = _MouseDrag(self._edit_layer, grab, self._hit_name, self._hit_value(idx, resize))
++        self._drag = (idx, drag, resize, offset)
++        self._cursor = grab
++
++    def begin_edit_session(self) -> None:
++        pass
++
++    def _move(self, idx: int, box: np.ndarray) -> None:
++        box = np.asarray(box, float)
++        if self._drag is None:  # an update outside a prepared drag (e.g. the warm-up restore)
++            self.prepare_drag(idx, self._current_box(idx), box)
++        d_idx, drag, resize, offset = self._drag
++        assert d_idx == idx, (d_idx, idx)
++        self._cursor = (box[1] if resize else box.mean(0)) + offset
++        drag.move(self._cursor)
++
++    def _release(self) -> None:
++        if self._drag is not None:
++            drag = self._drag[1]
++            self._drag = None
++            drag.release(self._cursor)
++
++
++class TurboBoxMouseAdapter(_MouseAdapter):
++    """TurboBox dragged with the mouse in its first (XY) view.
++
++    Its drag handler writes each move to the shared store, which updates the
++    other views; the release closes the store's edit session (3D views, undo,
++    thumbnails). Hit test given: ``_hit_test_bbox`` (box id, near an edge = resize).
++    """
++
++    def __init__(self, main_layer):
++        super().__init__(main_layer, "_hit_test_bbox")
++        self._store = main_layer._bbox_store
++
++    def _hit_value(self, idx, resize):
++        return (idx, resize)
++
++    def _current_box(self, idx):
++        return np.array(self._store.data[idx], float)
++
++    def prepare_drag(self, idx, start, end):
++        super().prepare_drag(idx, start, end)
++        state = self._edit_layer._drag_state
++        assert state and state["index"] == idx and state["mode"] == ("resize" if self._drag[2] else "translate")
++
++    def update_box(self, idx: int, box: np.ndarray) -> None:
++        self._move(idx, box)
++
++    def end_edit_session(self) -> None:
++        self._release()
++
++
++class NapariBboxMouseAdapter(_MouseAdapter, NapariBboxPerBoxAdapter):
++    """napari-bbox dragged with the mouse in its first (XY) view.
++
++    Its select-mode handler moves or scales the box in place and refreshes the
++    layer on every move; the release emits the data event and rasterizes the
++    thumbnail. Hit test given: ``get_value`` (box index, and the max corner's
++    vertex for a resize). The other live views follow per box through the
++    public remove/add path with thumbnails deferred to the end of the drag
++    (and, with ``quiet``, data events deferred to the release as well); 3D views
++    get the final box at the release (:class:`NapariBboxPerBoxAdapter`).
++    """
++
++    def __init__(self, layers: list, ndisplays: list[int], quiet: bool = False):
++        NapariBboxPerBoxAdapter.__init__(self, layers, ndisplays, block_thumbnails=True, quiet=quiet)
++        _MouseAdapter.__init__(self, self._live_layers[0], "get_value")
++        self._follow_layers = self._live_layers[1:]
++        self._n = len(self._edit_layer.data)
++
++    @property
++    def _synced_layers(self):
++        return self._follow_layers
++
++    def _current_box(self, idx):
++        # The edited view changes boxes in place: its positions are the box ids.
++        d = np.asarray(self._edit_layer._data_view.bounding_boxes[idx].data, float)
++        return np.stack([d.min(0), d.max(0)])
++
++    def _hit_value(self, idx, resize):
++        from napari_bbox.boundingbox.napari_0_4_15._bounding_box_constants import Box
++
++        layer = self._edit_layer
++        if not resize:
++            return (idx, None)
++        # A box's corners are grabbable once it is selected: select it, then the
++        # press lands on its max corner (vertex opposite the fixed min corner).
++        layer.selected_data = {idx}
++        disp = list(layer._slice_input.displayed)
++        start = self._current_box(idx)
++        corners = layer._selected_box[: Box.LEN]
++        vertex = int(np.argmin(np.abs(corners - start[1][disp]).sum(1)))
++        assert np.allclose(corners[vertex], start[1][disp])
++        assert np.allclose(corners[(vertex + 4) % Box.LEN], start[0][disp])
++        return (idx, vertex)
++
++    def prepare_drag(self, idx, start, end):
++        assert len(self._edit_layer._data_view.bounding_boxes) == self._n
++        super().prepare_drag(idx, start, end)
++
++    def begin_edit_session(self) -> None:
++        NapariBboxPerBoxAdapter.begin_edit_session(self)
++
++    def update_box(self, idx: int, box: np.ndarray) -> None:
++        self._move(idx, box)
++        self._follow(idx, box)
++        if not self._in_session:
++            self._release()
++            self._announce_live()
++            self._flush()
++
++    def end_edit_session(self) -> None:
++        self._release()
++        NapariBboxPerBoxAdapter.end_edit_session(self)
+diff --git a/src/napari_turbobox/__init__.py b/src/napari_turbobox/__init__.py
+index 1feacee..118751f 100644
+--- a/src/napari_turbobox/__init__.py
++++ b/src/napari_turbobox/__init__.py
+@@ -1,35 +1,55 @@
+ """
+-napari-turbobox
++napari-TurboBox
+ ===============
+ 
+-Modern n-dimensional bounding box plugin for napari 0.6.6+ built on the npe2 plugin system.
++Synchronized multi-viewer bounding-box annotation for napari >= 0.6.6 (npe2
++plugin). Boxes are axis-aligned and have 2 or 3 spatial axes.
+ 
+ Features
+ --------
+-- **TurboBoxLayer**: Custom napari layer for axis-aligned bounding boxes
+-- **Interactive editing**: Click to select, drag to move, Shift+drag to resize
+-- **3D navigation**: Bboxes automatically show/hide when scrolling through slices
+-- **Control panel**: Widget for managing, inspecting, and modifying bounding boxes
+-- **GPU-accelerated**: Efficient rendering using napari's shapes layer backend
++- **TurboBoxLayer**: napari Shapes layer that renders the boxes of a
++  ``BBoxDataStore`` (slice rectangles in 2D views, one wireframe per box in 3D)
++- **Multi-viewer sync**: ``create_synchronized_bbox_layers`` shares one store
++  between an editable layer and read-only layers in other viewers
++- **Interactive editing**: drag to move; Shift+drag or drag near an edge to resize
++- **3D navigation**: boxes are shown on the slices they intersect
++- **Control panel**: widget to add, list, delete, import and export boxes
++  (native .npy/.json, per-slice COCO JSON, per-slice YOLO)
+ 
+ Usage
+ -----
+-Add bbox layer programmatically::
++Synchronized layers in several viewers::
++
++    from napari_turbobox import create_synchronized_bbox_layers
++
++    layers = create_synchronized_bbox_layers(
++        main_viewer, [viewer_xz, viewer_yz, viewer_3d], image_shape=(10, 512, 512)
++    )
++    layers[0].add_boxes([[[z_min, y_min, x_min], [z_max, y_max, x_max]]])
++
++One layer in the current viewer (shape, scale and translation are taken from
++an image layer)::
+ 
+     from napari_turbobox import create_nd_bbox_layer
+ 
+-    layer = create_nd_bbox_layer(viewer, ndim=3, image_shape=(10, 512, 512))
+-    layer.add_boxes([[[z_min, y_min, x_min], [z_max, y_max, x_max]]])
++    layer = create_nd_bbox_layer(viewer)
+ 
+-Or use the plugin menu: Plugins > napari-turbobox > Add Bounding Box Layer
++Or open the control panel from napari's Plugins menu:
++"BBox Control Panel (napari-TurboBox)".
+ 
+ Components
+ ----------
+ TurboBoxLayer
+-    Core layer class extending napari's Shapes layer with bbox-specific functionality
++    Layer class extending napari's Shapes layer with bbox-specific functionality
++
++BBoxDataStore
++    Shared (N, 2, D) box store that notifies the layers of all viewers
++
++create_synchronized_bbox_layers
++    Creates one editable and several read-only layers sharing one store
+ 
+ create_nd_bbox_layer
+-    Factory function to create a new bbox layer with automatic viewer integration
++    Factory function to create a bbox layer in a viewer
+ 
+ create_control_panel
+     Factory function to create the control widget for managing bboxes
+diff --git a/src/napari_turbobox/_factory.py b/src/napari_turbobox/_factory.py
+index a8b3f04..48adad7 100644
+--- a/src/napari_turbobox/_factory.py
++++ b/src/napari_turbobox/_factory.py
+@@ -20,6 +20,7 @@ def create_nd_bbox_layer(viewer: Viewer | None = None) -> TurboBoxLayer:
+     v = viewer or current_viewer()
+     logger.debug("Resolved viewer: %s", v)
+     image_shape = None
++    transform = {}
+     ndim = 3
+     if v is not None:
+         logger.debug("Viewer has %d layers:", len(v.layers))
+@@ -42,7 +43,8 @@ def create_nd_bbox_layer(viewer: Viewer | None = None) -> TurboBoxLayer:
+             logger.debug("ndim: %d", ndim)
+             logger.debug("data.shape: %s", active_image.data.shape)
+             try:
+-                image_shape = tuple(active_image.data.shape[-active_image.ndim :])
++                image_shape = tuple(active_image.data.shape[: active_image.ndim])  # RGB: no channel axis
++                transform = {"scale": active_image.scale, "translate": active_image.translate}
+                 logger.debug("image_shape: %s", image_shape)
+             except Exception as e:
+                 logger.warning("Failed to get image_shape: %s", e)
+@@ -54,7 +56,7 @@ def create_nd_bbox_layer(viewer: Viewer | None = None) -> TurboBoxLayer:
+     logger.debug("ndim: %d", ndim)
+     logger.debug("image_shape: %s", image_shape)
+     try:
+-        layer = TurboBoxLayer(ndim=ndim, image_shape=image_shape)
++        layer = TurboBoxLayer(ndim=ndim, image_shape=image_shape, **transform)
+         logger.debug("Layer created: %s", layer)
+         logger.debug("Layer name: %s", layer.name)
+         logger.debug("Layer ndim: %d", layer.ndim)
+diff --git a/src/napari_turbobox/data_store.py b/src/napari_turbobox/data_store.py
+index eb09125..816dcd2 100644
+--- a/src/napari_turbobox/data_store.py
++++ b/src/napari_turbobox/data_store.py
+@@ -91,14 +91,13 @@ class _ListenerHandle:
+             self._callback = None
+             self._is_weak = True
+         except TypeError:
+-            try:
+-                self._ref = weakref.ref(callback)
+-                self._callback = None
+-                self._is_weak = True
+-            except TypeError:
+-                self._ref = None
+-                self._callback = callback
+-                self._is_weak = False
++            # Plain functions, lambdas and functools.partial objects are usually
++            # created inline and referenced nowhere else; a weakref.ref to them
++            # dies immediately and the listener would silently never fire.
++            # Keep a strong reference (callers unregister explicitly).
++            self._ref = None
++            self._callback = callback
++            self._is_weak = False
+         try:
+             sig = inspect.signature(callback)
+             self.accepts_changed_idx = "changed_idx" in sig.parameters
+@@ -148,8 +147,9 @@ class BBoxDataStore:
+     Attributes
+     ----------
+     events : EmitterGroup
+-        Event emitters for data changes. Available events:
++        Event emitters. Available events:
+         - changed: Emitted when bbox data is modified
++        - session_ended: Emitted when an edit session ends
+ 
+     Examples
+     --------
+@@ -162,9 +162,10 @@ class BBoxDataStore:
+ 
+     Notes
+     -----
+-    The store prefers weak references for listeners to avoid circular
+-    references and memory leaks, and falls back to strong references only when
+-    a callback cannot be weakly referenced.
++    Bound-method listeners are held through weak references, so a layer that
++    is garbage-collected drops out by itself. Other callables (functions,
++    lambdas, functools.partial) are held by strong references and must be
++    removed with :meth:`unregister_listener`.
+ 
+     .. warning::
+         This class is NOT thread-safe. All modifications should be made from
+@@ -182,7 +183,7 @@ class BBoxDataStore:
+         else:
+             self._bboxes = np.asarray(initial_data, dtype=_COORD_DTYPE)
+         self._listeners: list[_ListenerHandle] = []
+-        self.events = EmitterGroup(source=self, changed=Event)
++        self.events = EmitterGroup(source=self, changed=Event, session_ended=Event)
+         self._batch_mode = False
+         self._pending_notification = False
+         self._in_edit_session = False
+@@ -251,18 +252,20 @@ class BBoxDataStore:
+     def update_box_silent(self, index: int, new_box: np.ndarray) -> None:
+         """In-place update of a single box without notifying listeners.
+ 
+-        Use during active drag for smooth local feedback.
+         Does NOT propagate to synchronized viewers and never marks any
+-        listener as pending — it is fully silent.
++        listener as pending; the caller is responsible for a later
++        notification (for example :meth:`update_box` or :meth:`update`).
+         """
+         self._assert_main_thread()
+         self._bboxes[index] = np.asarray(new_box, dtype=float)
+ 
+     def update_box(self, index: int, new_box: np.ndarray) -> None:
+-        """Update a single box and notify all listeners.
++        """Update a single box in place and notify all listeners.
+ 
+-        Use at drag-end to propagate final position to all synchronized viewers.
+-        O(1) in-place mutation, no array copy.
++        Listeners that accept ``changed_idx`` receive ``index``. The layer calls
++        this on every drag step; ``on_commit`` listeners defer the notification
++        while an edit session is active. The row is written in place; the array
++        is not copied.
+         """
+         self._assert_main_thread()
+         self._bboxes[index] = np.asarray(new_box, dtype=float)
+@@ -428,6 +431,12 @@ class BBoxDataStore:
+             handle._pending_changed_idx = None
+             if had_pending:
+                 self._call_listener(handle, changed_idx)
++        self.events.session_ended()
++
++    @property
++    def in_edit_session(self) -> bool:
++        """True while an edit session (see :meth:`begin_edit_session`) is active."""
++        return self._in_edit_session
+ 
+     def unregister_listener(self, callback: Callable[[np.ndarray], None]) -> None:
+         """
+@@ -459,8 +468,8 @@ class BBoxDataStore:
+ 
+         Notes
+         -----
+-        🚀 OPTIMIZATION: This can provide 80-90% speedup for bulk operations
+-        by avoiding repeated synchronization across all viewers.
++        The deferred notification carries no ``changed_idx``, so every
++        listener rebuilds its view once.
+         """
+         return _BatchUpdateContext(self)
+ 
+diff --git a/src/napari_turbobox/export.py b/src/napari_turbobox/export.py
+index 6938881..2ce06fa 100644
+--- a/src/napari_turbobox/export.py
++++ b/src/napari_turbobox/export.py
+@@ -24,8 +24,9 @@ TurboBox boxes follow napari axis order: ``(z, y, x)`` for 3D, ``(y, x)`` for
+ YOLO is ``class x_center y_center w h`` normalized to ``[0, 1]``.
+ 
+ Out-of-bounds boxes are **clamped** to the image bounds and a warning is
+-emitted (the store already clamps on write, so an out-of-range box at export
+-time signals an upstream bug worth surfacing rather than swallowing).
++emitted (the layer rejects out-of-range API writes and clamps mouse edits when
++it knows the image shape, so an out-of-range box at export time signals an
++upstream problem worth surfacing rather than swallowing).
+ """
+ 
+ from __future__ import annotations
+diff --git a/src/napari_turbobox/layer.py b/src/napari_turbobox/layer.py
+index 6e38769..c8c41cf 100644
+--- a/src/napari_turbobox/layer.py
++++ b/src/napari_turbobox/layer.py
+@@ -2,6 +2,7 @@
+ 
+ from __future__ import annotations
+ 
++import dataclasses
+ import logging
+ import time
+ from collections.abc import Iterable, Sequence
+@@ -29,11 +30,74 @@ from .undo import UndoStack
+ logger = logging.getLogger(__name__)
+ 
+ 
++def _select_unless_bbox_drag(layer, event):
++    """napari's select handler, skipped for drags that TurboBox's handler owns.
++
++    TurboBox's ``_on_mouse_drag`` runs first (index 0) and sets ``_drag_state``
++    when the press hits a box; napari's ``select`` would otherwise also shift
++    the displayed shape (napari never checks ``event.handled``).
++    """
++    if getattr(layer, "_drag_state", None) is not None:
++        return
++    from napari.layers.shapes._shapes_mouse_bindings import select
++
++    yield from select(layer, event)
++
++
++def _move_last_shape(dv, pos: int) -> None:
++    """Move the last shape of napari's ShapeList ``dv`` to index ``pos``.
++
++    Each shape owns one contiguous block of rows in the vertex, mesh-vertex and
++    triangle arrays; ``*_index[i]`` is where the block of shape ``i`` starts and
++    ``*_index[i + 1]`` where it ends. Moving the last shape to ``pos`` rotates
++    the rows from block ``pos`` on, shifts the block starts behind it, and
++    renumbers the mesh-vertex indices stored in the triangles. The z-order and
++    the displayed arrays are left to napari (``_update_z_order``).
++    """
++    last = len(dv.shapes) - 1
++    if pos == last:
++        return
++    mesh = dv._mesh
++
++    def move_rows(index, *arrays):
++        """Rotate the rows of ``arrays`` and return the new block starts."""
++        start, moved, end = int(index[pos]), int(index[last]), int(index[last + 1])
++        rotated = [
++            np.concatenate([a[:start], a[moved:end], a[start:moved], a[end:]]) for a in arrays
++        ]
++        new_index = index.copy()
++        new_index[pos + 1 : last + 1] = index[pos:last] + (end - moved)
++        return new_index, rotated, (start, moved, end)
++
++    dv.shapes.insert(pos, dv.shapes.pop())
++    dv._z_index, dv._edge_color, dv._face_color = (
++        np.concatenate([a[:pos], a[last:], a[pos:last]])
++        for a in (dv._z_index, dv._edge_color, dv._face_color)
++    )
++    dv._vertices_index, (dv._vertices,), _ = move_rows(dv._vertices_index, dv._vertices)
++    mesh.vertices_index, rotated, (start, moved, end) = move_rows(
++        mesh.vertices_index, mesh.vertices, mesh.vertices_centers, mesh.vertices_offsets
++    )
++    mesh.vertices, mesh.vertices_centers, mesh.vertices_offsets = rotated
++    # Where each old mesh-vertex row went, for the indices held by the triangles.
++    dtype = mesh.triangles.dtype
++    new_row = np.concatenate([
++        np.arange(start, dtype=dtype),
++        np.arange(start + end - moved, end, dtype=dtype),
++        np.arange(start, start + end - moved, dtype=dtype),
++        np.arange(end, len(mesh.vertices), dtype=dtype),
++    ])
++    mesh.triangles_index, (triangles, mesh.triangles_colors), _ = move_rows(
++        mesh.triangles_index, mesh.triangles, mesh.triangles_colors
++    )
++    mesh.triangles = new_row[triangles]
++
++
+ class TurboBoxLayer(Shapes):
+-    """Single-layer nD bounding box representation built on Shapes.
++    """Axis-aligned 2D/3D bounding boxes rendered through a napari Shapes layer.
+ 
+-    This layer provides an optimized implementation for interactive annotation
+-    of axis-aligned bounding boxes in n-dimensional image data. It extends
++    This layer provides interactive annotation of axis-aligned bounding boxes
++    in 2D images and 3D volumes (2 or 3 spatial axes). It extends
+     napari's Shapes layer with bbox-specific functionality including efficient
+     multi-viewer synchronization, slice-aware rendering, and interactive
+     editing capabilities.
+@@ -75,8 +139,9 @@ class TurboBoxLayer(Shapes):
+                 - np.ndarray of shape (N, 2, ndim): N boxes as [mins, maxs] pairs
+                 - Iterable of [[mins], [maxs]] pairs
+             ndim: Number of dimensions. If None, inferred from data or defaults to 3.
+-            image_shape: Shape of the image volume for coordinate clamping. If provided,
+-                bboxes will be automatically clamped to [0, image_shape) along each axis.
++            image_shape: Shape of the image volume. If provided, API writes outside
++                [0, image_shape - 1] are rejected (ValueError) and mouse edits are
++                clamped to that range.
+             name: Layer name displayed in napari layer list.
+             edge_color: Color for bbox edges. Supports color names ("cyan"), hex codes,
+                 or RGB(A) tuples.
+@@ -128,7 +193,8 @@ class TurboBoxLayer(Shapes):
+         Notes:
+             - Bboxes are always axis-aligned (no rotation support)
+             - In 2D view mode (ndisplay=2), shows slice-intersecting rectangles
+-            - In 3D view mode (ndisplay=3), shows face loops for better visibility
++            - In 3D view mode (ndisplay=3), shows one wireframe path per box
++              (a 2D layer keeps showing its rectangles, like napari's Shapes)
+             - Mode switching is automatic based on viewer dims
+         """
+         boxes = ensure_bbox_array(data, ndim)
+@@ -141,10 +207,9 @@ class TurboBoxLayer(Shapes):
+             self._owns_store = False
+             if boxes.size > 0:
+                 self._bbox_store.add_boxes(boxes)
+-        paths = paths_from_bboxes(self._bbox_store.data)
+         logger.debug(
+-            "__init__: Creating layer with%spaths (shared_store=%s, interactive=%s)",
+-            len(paths),
++            "__init__: Creating layer with%sboxes (shared_store=%s, interactive=%s)",
++            len(self._bbox_store.data),
+             not self._owns_store,
+             interactive,
+         )
+@@ -165,6 +230,9 @@ class TurboBoxLayer(Shapes):
+         logger.debug("__init__: After super().__init__, self.edge_width =%s", self.edge_width)
+         self._image_shape = self._normalize_image_shape(image_shape, ndim)
+         self._interactive = interactive
++        self._pending_remove = None
++        self._napari_adding = False  # between napari's 'adding' and 'added' events
++        self._reset_editable()  # read-only layers: editable=False -> napari forces PAN_ZOOM
+         self._sync_guard = False
+         self._event_manager = BoundingBoxEventManager()
+         self._drag_state = None
+@@ -175,14 +243,16 @@ class TurboBoxLayer(Shapes):
+         self._just_finished_drag = False
+         self._drag_end_time = 0.0
+         self._sync_mode: Literal["live", "on_commit"] = sync_mode or "live"
+-        if not self._owns_store:
+-            self._bbox_store.register_listener(
+-                self._on_shared_data_changed, sync_mode=self._sync_mode
+-            )
++        # Every layer follows its store, also one it owns, so that edits made
++        # through ``layer.store`` show up exactly like edits made by the layer.
++        self._bbox_store.register_listener(self._on_shared_data_changed, sync_mode=self._sync_mode)
+         self.events.add(bboxes=Event)
+         self.events.data.connect(self._on_shapes_data_changed)
+         self.mouse_drag_callbacks.insert(0, self._on_mouse_drag)
+         self._allow_thumbnail_update = True
++        # Rasterize the thumbnail once when a store edit session ends (it is
++        # skipped for every store-driven update inside the session).
++        self._bbox_store.events.session_ended.connect(self._on_store_session_ended)
+         self._moving_coordinates = None
+         self.events.mode.connect(self._on_mode_change)
+         self._dims_connected = False
+@@ -196,11 +266,6 @@ class TurboBoxLayer(Shapes):
+             self._drag_box_stored = None
+         if not hasattr(self, "_value_stored"):
+             self._value_stored = (None, None)
+-        try:
+-            if hasattr(self.events, "parent"):
+-                self.events.parent.connect(self._on_parent_change)
+-        except (AttributeError, KeyError):
+-            pass
+         self.current_edge_width = edge_width
+         self.edge_width = edge_width
+         self._spatial_index = SpatialIndex(self._bbox_store.data)
+@@ -219,7 +284,7 @@ class TurboBoxLayer(Shapes):
+         self._sync_shapes_from_bboxes()
+         from napari.layers.shapes._shapes_constants import Mode
+ 
+-        self.mode = Mode.SELECT
++        self.mode = Mode.SELECT if self._interactive else Mode.PAN_ZOOM
+         self.bind_key("Control-Z", self.undo, overwrite=True)
+         self.bind_key("Control-Y", self.redo, overwrite=True)
+         self.bind_key("Command-Z", self.undo, overwrite=True)
+@@ -275,22 +340,23 @@ class TurboBoxLayer(Shapes):
+     def sync_mode(self, value: Literal["live", "on_commit"]) -> None:
+         """Change the sync mode at runtime.
+ 
+-        Only meaningful when the layer is subscribed to a shared store
+-        (``_owns_store=False``). For a layer that owns its store this is a
+-        no-op aside from caching the value, since the store has no other
+-        listeners to coordinate.
++        "live" updates the layer on every store change; "on_commit" defers the
++        update until the store's edit session ends.
+         """
+         self._sync_mode = value
+-        if self._owns_store:
+-            logger.debug(
+-                "sync_mode set to %r on a layer that owns its store; "
+-                "no shared listener to update (no-op)",
+-                value,
+-            )
+-            return
+         self._bbox_store.set_listener_sync_mode(self._on_shared_data_changed, value)
+         logger.debug("Layer sync_mode changed to %r", value)
+ 
++    @property
++    def store(self) -> BBoxDataStore:
++        """The :class:`BBoxDataStore` this layer displays (shared by synchronized layers).
++
++        Writes to the store (for example ``store.update_box``) update every layer
++        that displays it. They are not validated and not recorded for undo; use
++        ``bounding_boxes`` or ``add_boxes`` for that.
++        """
++        return self._bbox_store
++
+     @property
+     def bounding_boxes(self) -> np.ndarray:
+         """Return a copy of the current bounding boxes."""
+@@ -307,12 +373,9 @@ class TurboBoxLayer(Shapes):
+         if boxes.size:
+             boxes = np.asarray([self._expand_hidden_axes(b) for b in boxes], dtype=float)
+             self._validate_box(boxes)
+-        self._bbox_store.data = boxes
+-        if self._owns_store:
+-            self._spatial_index = SpatialIndex(self.bounding_boxes)
+-            self._sync_shapes_from_bboxes()
+-            self.events.bboxes(value=self.bounding_boxes)
+-            self._event_manager.emit("updated", self.bounding_boxes)
++        self._bbox_store.data = boxes  # the store notifies this layer and all others
++        if hasattr(self, "_undo_stack"):
++            self._undo_stack.push(self.bounding_boxes.copy(), "Set boxes")  # no-op during undo/redo
+ 
+     def add_boxes(self, boxes: Iterable[Sequence[Sequence[float]]] | np.ndarray) -> None:
+         """Add new bounding boxes to the layer."""
+@@ -352,21 +415,48 @@ class TurboBoxLayer(Shapes):
+ 
+     def _safe_set_shape_data(
+         self, paths: list[np.ndarray], shape_type: str | None = None
+-    ) -> None:
+-        """Push path data into the underlying Shapes layer.
++    ) -> bool:
++        """Push path data into the underlying Shapes layer; return False if napari refused it.
+ 
+         Works around empty-shapes rendering issues in napari. When
+         ``shape_type`` is given, each path is tagged with it so napari builds
+         shapes of that type — the 3D wireframe must be ``'path'`` (it is a
+         non-planar, self-touching polyline and would be mis-triangulated as a
+         polygon). When ``shape_type`` is None the existing behaviour is kept.
++
++        napari's data setter sizes the new shapes and data view by the viewer's
++        ``ndisplay``, while ``Shapes._set_view_slice`` keeps the data view at
++        ``min(ndim, ndisplay)``; a 2D layer in a 3D viewer then raises on any
++        data set (plain Shapes does too). The setter therefore sees ``ndisplay``
++        capped at the layer's ndim.
+         """
+-        if not paths:
+-            self.data = np.empty((0, 2, self.ndim), dtype=float)
+-        elif shape_type is not None:
+-            self.data = [(np.asarray(p, dtype=float), shape_type) for p in paths]
+-        else:
+-            self.data = paths
++        slice_input = self._slice_input
++        capped = not hasattr(self, "_mock_slice_input") and slice_input.ndisplay > self.ndim
++        if capped:
++            self._mock_slice_input = dataclasses.replace(slice_input, ndisplay=self.ndim)
++        try:
++            if not paths:
++                self.data = np.empty((0, 2, self.ndim), dtype=float)
++            elif shape_type is not None:
++                self.data = [(np.asarray(p, dtype=float), shape_type) for p in paths]
++            else:
++                self.data = paths
++        except ValueError:
++            if not capped:
++                raise
++            # napari < 0.7 ignores _mock_slice_input and cannot set Shapes data
++            # while a lower-dimensional layer is shown in 3D; the view is
++            # redrawn when the viewer returns to 2D display.
++            logger.warning("2D box layer not redrawn while the viewer shows 3D (napari < 0.7)")
++            return False
++        finally:
++            if capped:
++                del self._mock_slice_input
++                # Back to napari's state after a display toggle: the viewer's
++                # ndisplay is stored, and the layer is editable only in 2D display.
++                self._ndisplay_stored = slice_input.ndisplay
++                self._reset_editable()
++        return True
+ 
+     def clear_boxes(self) -> None:
+         if not self._interactive:
+@@ -375,10 +465,7 @@ class TurboBoxLayer(Shapes):
+         if self._bbox_store.data.size == 0:
+             return
+         n_boxes = len(self._bbox_store.data)
+-        empty_data = np.empty((0, 2, self.ndim), dtype=float)
+         self._bbox_store.clear()
+-        if self._owns_store:
+-            self._perform_sync(empty_data)
+         if hasattr(self, "_undo_stack"):
+             self._undo_stack.push(
+                 self.bounding_boxes.copy(), f"Clear {n_boxes} box{('es' if n_boxes > 1 else '')}"
+@@ -465,7 +552,9 @@ class TurboBoxLayer(Shapes):
+                             f"Box {b} axis {i}: max ({maxs[i]}) exceeds "
+                             f"image_shape - 1 ({upper[i]:g})"
+                         )
+-                if maxs[i] - mins[i] < 1.0:
++                # float32 storage may round an extent of exactly 1 slightly below 1
++                tol = 4 * np.finfo(np.float32).eps * max(1.0, abs(mins[i]), abs(maxs[i]))
++                if maxs[i] - mins[i] < 1.0 - tol:
+                     raise ValueError(
+                         f"Box {b} axis {i}: min-max distance "
+                         f"({maxs[i] - mins[i]:g}) below required minimum 1"
+@@ -475,17 +564,21 @@ class TurboBoxLayer(Shapes):
+         """True when the layer is currently rendering in 3D (ndisplay == 3).
+ 
+         This is exactly the regime in which ``_current_paths`` emits single
+-        wireframe paths, which must be set as ``shape_type='path'``.
++        wireframe paths, which must be set as ``shape_type='path'``. A 2D layer
++        in a 3D viewer only has two displayed axes and keeps its 2D slice view.
+         """
+         slice_input = getattr(self, "_slice_input", None)
+-        return slice_input is not None and getattr(slice_input, "ndisplay", None) == 3
++        return (
++            slice_input is not None
++            and getattr(slice_input, "ndisplay", None) == 3
++            and self.ndim >= 3
++        )
+ 
+     def _sync_shapes_from_bboxes(self) -> None:
+         """Write the canonical bbox representation back to the Shapes data."""
+-        if getattr(self, "_bbox_is_moving", False):
+-            return
+         self._sync_guard = True
+         try:
++            self._pending_shape_state = (None, None, None)
+             paths = self._current_paths()
+             # Pin shape_type explicitly per render mode. Passing None lets
+             # napari fall back to its internal shape_type memory, which can
+@@ -494,12 +587,283 @@ class TurboBoxLayer(Shapes):
+             # from our 5-vertex closed slice path and raises ValueError.
+             # 3D wireframe = 'path' (non-planar polyline); 2D slice = 'polygon'.
+             shape_type = "path" if self._is_3d_view() else "polygon"
+-            self._safe_set_shape_data(paths, shape_type)
+-            if hasattr(self, "current_edge_width"):
+-                self.edge_width = self.current_edge_width
++            # napari's data setter gives new shapes width 1 and refreshes; the
++            # width is then set for all shapes, which refreshes again. Block both
++            # and refresh once.
++            with self._block_refresh():
++                if not self._safe_set_shape_data(paths, shape_type):
++                    self._shapes_mode = None  # nothing drawn: no incremental edits
++                    return
++                if hasattr(self, "current_edge_width"):
++                    self.edge_width = self.current_edge_width
++            self.refresh()
++            # Remember which box each shape shows, so single-box edits can be
++            # applied to one shape instead of rebuilding the whole layer.
++            mode, box_ids, view_key = self._pending_shape_state
++            self._shapes_mode = mode
++            self._shape_box_ids = box_ids
++            self._shapes_view_key = view_key
+         finally:
+             self._sync_guard = False
+ 
++    def _on_store_session_ended(self, event=None) -> None:
++        """Rasterize the thumbnail once if it was skipped during the session."""
++        if getattr(self, "_thumbnail_stale", False):
++            self._update_thumbnail()
++
++    def _slice_query(self):
++        """Return ``(current_step, displayed, view_key)`` for the current 2D slice."""
++        slice_input = self._slice_input
++        displayed = tuple(slice_input.displayed)
++        point = self._slice_point_data()
++        # Keyed on the data-space point the paths are built at, so a changed
++        # scale or translate (same world point, different data point) is a new view.
++        view_key = (slice_input.ndisplay, displayed, tuple(np.round(point, decimals=6)))
++        return point, displayed, view_key
++
++    def _slice_point_data(self) -> np.ndarray:
++        """Current slice point in this layer's data coordinates (boxes live in data space)."""
++        pt = np.asarray(self._slice_input.world_slice.point, dtype=float)
++        if len(pt) < self.ndim:
++            pt = np.pad(pt, (self.ndim - len(pt), 0), constant_values=0)
++        return np.asarray(self.world_to_data(pt), dtype=float)
++
++    def _incremental_shape_update(self, changed_idx: int, new_data: np.ndarray) -> bool:
++        """Apply a single-box change to its one shape instead of a full rebuild.
++
++        A box that enters or leaves the slice gets its shape added or removed
++        (``_add_or_remove_shape``). Returns ``False`` when the change cannot be
++        applied incrementally (the view changed since the last full rebuild,
++        the shape bookkeeping is unknown, or an enter/leave that only a full
++        rebuild handles); the caller then falls back to a full rebuild.
++        """
++        mode = getattr(self, "_shapes_mode", None)
++        if mode is None or self._sync_guard:
++            return False
++        bbox = np.asarray(new_data[changed_idx], dtype=float)
++        if mode == "3d":
++            if not self._is_3d_view() or self.nshapes != len(new_data):
++                return False
++            pos = int(changed_idx)
++            path = wireframe_path_from_bbox(bbox)
++        else:
++            if self._is_3d_view():
++                return False
++            box_ids = self._shape_box_ids
++            current_step, displayed, view_key = self._slice_query()
++            if view_key != self._shapes_view_key or self.nshapes != len(box_ids):
++                return False
++            pos = int(np.searchsorted(box_ids, changed_idx))
++            was_visible = pos < len(box_ids) and box_ids[pos] == changed_idx
++            new_paths = slice_paths_from_bbox(bbox, displayed, current_step)
++            if not was_visible and not new_paths:
++                return True  # off-slice before and after: nothing to draw
++            if not (was_visible and new_paths):
++                # enters or leaves the slice
++                path = np.asarray(new_paths[0], dtype=float) if new_paths else None
++                return self._add_or_remove_shape(pos, int(changed_idx), path)
++            path = new_paths[0]
++        self._sync_guard = True
++        try:
++            self._edit_shape(pos, np.asarray(path, dtype=float))
++            if self._shapes_mode is None:
++                return False  # the shape's row counts changed: full rebuild
++            self.refresh()
++            if pos in self.selected_data:
++                # napari recomputes the selection's interaction box and outline
++                # only when the selection changes; the selected box itself moved.
++                self._selected_box = self.interaction_box(self.selected_data)
++                self._set_highlight(force=True)
++        finally:
++            self._sync_guard = False
++        return True
++
++    def _add_or_remove_shape(self, pos: int, box_idx: int, path: np.ndarray | None) -> bool:
++        """Show a box that entered the slice (``path``) or hide one that left it (``None``).
++
++        A full rebuild re-creates every visible shape. Here only the one shape
++        is added at, or removed from, its place ``pos`` in the sorted visible
++        order, and the selection and hover state a rebuild resets are reset
++        the same way, so the shapes, colours, z-order and displayed arrays are
++        those of a full rebuild. Like an in-slice edit, it emits no napari
++        ``data`` event. Returns ``False`` (full rebuild) when that cannot be
++        guaranteed: shapes with their own style (see ``_uniform_shape_style``),
++        an empty view before or after, a layer without ``image_shape`` (its
++        extent follows the shapes shown, and the viewer only re-reads it on
++        the ``data`` events of a rebuild), or a napari without the ShapeList
++        internals used here. If napari raises part-way, the exception is passed
++        on and the next update rebuilds the view.
++        """
++        dv = self._data_view
++        n = len(dv.shapes)
++        mesh = getattr(dv, "_mesh", None)
++        indices = (getattr(dv, "_vertices_index", ()), getattr(mesh, "vertices_index", ()),
++                   getattr(mesh, "triangles_index", ()))
++        if (
++            self._image_shape is None
++            or n < (1 if path is not None else 2)
++            or self._slice_input.ndisplay != 2
++            or any(len(index) != n + 1 for index in indices)
++            or not all(hasattr(dv, name) for name in ("_update_z_order", "_clear_cache"))
++            or not hasattr(self, "_feature_table")
++        ):
++            return False
++        style = self._uniform_shape_style(entering=path is not None)
++        if style is None:
++            return False
++        edge_color, face_color = style
++        self._sync_guard = True
++        try:
++            # What napari's data setter does before it replaces the shapes.
++            with self._block_refresh():
++                self._finish_drawing()
++            if self.selected_data:
++                self.selected_data = set()
++            with dv.batched_updates():
++                if path is not None:
++                    from napari.layers.shapes._shapes_models import Polygon
++
++                    slice_input = self._slice_input
++                    shape = Polygon(
++                        path,
++                        edge_width=self.current_edge_width,
++                        z_index=0,
++                        dims_order=slice_input.order,
++                        ndisplay=slice_input.ndisplay,
++                    )
++                    # The list form takes napari's batch path, the one a full
++                    # rebuild uses (it keeps napari's float32/int32 arrays).
++                    dv.add([shape], face_color=[face_color], edge_color=[edge_color], z_refresh=False)
++                    _move_last_shape(dv, pos)
++                    dv._update_z_order()
++                    dv._clear_cache()
++                    self._shape_box_ids = np.insert(self._shape_box_ids, pos, box_idx)
++                else:
++                    dv.remove(pos)  # also re-derives the z-order
++                    # napari's Shapes.remove drops the colours itself, not the ShapeList.
++                    dv._edge_color = np.delete(dv._edge_color, pos, axis=0)
++                    dv._face_color = np.delete(dv._face_color, pos, axis=0)
++                    self._shape_box_ids = np.delete(self._shape_box_ids, pos)
++            self._feature_table.resize(len(dv.shapes))
++            self.refresh()
++        except Exception:
++            # napari failed part-way: its shape list may hold one shape more or less
++            # than its colour and index arrays. The next update rebuilds the view, and
++            # a rebuild takes each shape's colour from here: give every shape the
++            # colours they all share (see _uniform_shape_style).
++            self._shapes_mode = None
++            n = len(dv.shapes)
++            dv._edge_color = np.repeat([edge_color], n, axis=0).astype(dv._edge_color.dtype)
++            dv._face_color = np.repeat([face_color], n, axis=0).astype(dv._face_color.dtype)
++            dv._z_index = np.asarray(dv.z_indices, dtype=dv._z_index.dtype)
++            raise
++        finally:
++            self._sync_guard = False
++        return True
++
++    def _uniform_shape_style(self, entering: bool) -> tuple[np.ndarray, np.ndarray] | None:
++        """Edge and face colour for a shape added or removed in place, or None.
++
++        napari's data setter hands z-index, colours and edge width to the new
++        shapes by position (it keeps the old values of the first shapes and
++        pads the rest), and ``_sync_shapes_from_bboxes`` then sets every edge
++        width to ``current_edge_width``. Adding or removing one shape in place
++        gives the same layer only while no shape has a style of its own: all
++        z-indices are 0 (an entering shape gets 0) or, for a removal, equal;
++        all shapes share one edge and one face colour, which for an entering
++        shape must be the colour napari gives a new shape; every edge width is
++        ``current_edge_width``; the layer has no features and constant text.
++        A fresh TurboBox layer is always in this state; napari's per-shape
++        tools (move to front, colouring selected shapes) leave it, and the
++        layer then keeps the full rebuild.
++        """
++        dv = self._data_view
++        z_index = np.asarray(dv._z_index)
++        if np.any(z_index != (0 if entering else z_index[0])):
++            return None
++        if self._feature_table.values.shape[1] or not all(
++            hasattr(encoding, "constant") for encoding in (self.text.string, self.text.color)
++        ):
++            return None
++        width = self.current_edge_width
++        if any(shape.edge_width != width for shape in dv.shapes):
++            return None
++        if entering:
++            from napari.layers.utils.color_transformations import (
++                normalize_and_broadcast_colors,
++                transform_color_with_defaults,
++            )
++
++            colors = []
++            for attribute in ("edge", "face"):
++                color = transform_color_with_defaults(
++                    num_entries=1,
++                    colors=self._get_new_shape_color(1, attribute=attribute),
++                    elem_name=f"{attribute}_color",
++                    default="white",
++                )
++                colors.append(np.asarray(normalize_and_broadcast_colors(1, color), np.float32)[0])
++            edge_color, face_color = colors
++        else:
++            edge_color, face_color = dv._edge_color[0], dv._face_color[0]
++        if not (np.all(dv._edge_color == edge_color) and np.all(dv._face_color == face_color)):
++            return None
++        return edge_color, face_color
++
++    def _edit_shape(self, pos: int, path: np.ndarray) -> None:
++        """Replace the vertices of shape ``pos`` in napari's shape list.
++
++        ``ShapeList.edit`` re-derives the displayed-shape bookkeeping and the
++        z-order of *all* shapes after every edit, which is O(N_visible) Python
++        work. A box edit keeps the shape's slice, z-index and triangulation,
++        so neither changes: the shape's vertices are updated in place and only
++        its rows of the displayed-vertex copy are refreshed. A changed
++        triangulation with the same counts (e.g. a box that becomes one voxel
++        thin) or a napari without these internals falls back to
++        ``ShapeList.edit``, which also rebuilds the displayed triangles. Other
++        counts (only a box with a zero extent has them) are left to a full
++        rebuild: ``ShapeList.edit`` would keep or move the shape's row slot,
++        which napari < 0.7 gets wrong, so ``_shapes_mode`` is cleared and the
++        caller rebuilds.
++        """
++        dv = self._data_view
++        shape = dv.shapes[pos]
++        before = (shape.vertices_count, getattr(shape, "face_vertices_count", None),
++                  shape.triangles_count, shape.data_displayed.shape[0])
++        face0 = np.array(getattr(shape, "_face_triangles", None))
++        edge0 = np.array(getattr(shape, "_edge_triangles", None))
++        shape.data = path
++        after = (shape.vertices_count, getattr(shape, "face_vertices_count", None),
++                 shape.triangles_count, shape.data_displayed.shape[0])
++        same_triangulation = (
++            face0.ndim == 2
++            and edge0.ndim == 2
++            and np.array_equal(face0, getattr(shape, "_face_triangles", None))
++            and np.array_equal(edge0, getattr(shape, "_edge_triangles", None))
++        )
++        rows = None
++        if before == after and same_triangulation and hasattr(dv, "_ShapeList__update_displayed_called"):
++            vslice = dv._vertices_slice_available(pos)
++            rows = np.flatnonzero(dv.displayed_vertices_to_shape_num == pos)
++            if len(rows) not in (0, vslice.stop - vslice.start):
++                rows = None
++        if rows is None:
++            if before != after:
++                self._shapes_mode = None
++                return
++            dv.edit(pos, path)
++            return
++        pending = dv._ShapeList__update_displayed_called
++        with dv.batched_updates():
++            dv._update_vertices(pos)
++            dv._update_mesh_triangles(pos)
++            dv._update_mesh_vertices(pos, edge=True, face=True)
++            # The displayed set and its order are unchanged: skip the O(N)
++            # recomputation that the updates above schedule.
++            dv._ShapeList__update_displayed_called = pending
++        if len(rows):
++            dv.displayed_vertices[rows] = dv._vertices[vslice]
++
+     def _update_thumbnail(self, *args, **kwargs):
+         """Honour ``_allow_thumbnail_update`` to skip thumbnail rasterization.
+ 
+@@ -512,6 +876,16 @@ class TurboBoxLayer(Shapes):
+         """
+         if not getattr(self, "_allow_thumbnail_update", True):
+             return
++        store = getattr(self, "_bbox_store", None)
++        if (
++            store is not None
++            and store.in_edit_session
++            and getattr(self, "suppress_thumbnail_in_session", True)
++        ):
++            # Rasterized once at session end (_on_store_session_ended).
++            self._thumbnail_stale = True
++            return
++        self._thumbnail_stale = False
+         return super()._update_thumbnail(*args, **kwargs)
+ 
+     def _current_paths(self) -> list[np.ndarray]:
+@@ -532,16 +906,11 @@ class TurboBoxLayer(Shapes):
+         view_key = (
+             slice_input.ndisplay,
+             tuple(slice_input.displayed) if hasattr(slice_input, "displayed") else None,
+-            tuple(np.round(slice_input.world_slice.point, decimals=2))
+-            if slice_input.ndisplay == 2
+-            else None,
++            None,
+         )
+-        if slice_input.ndisplay == 2:
+-            current_step = np.asarray(slice_input.world_slice.point, dtype=float)
+-            if len(current_step) < self.ndim:
+-                current_step = np.pad(
+-                    current_step, (self.ndim - len(current_step), 0), constant_values=0
+-                )
++        if not self._is_3d_view():
++            current_step, _, view_key_2d = self._slice_query()
++            view_key = view_key_2d
+             query_mins = np.full(self.ndim, -np.inf)
+             query_maxs = np.full(self.ndim, np.inf)
+             tolerance = 1e-06
+@@ -550,8 +919,13 @@ class TurboBoxLayer(Shapes):
+                 query_mins[ax] = current_step[ax] - tolerance
+                 query_maxs[ax] = current_step[ax] + tolerance
+             query_box = np.stack([query_mins, query_maxs], axis=0)
+-            visible_indices = self._spatial_index.intersection(query_box)
+-            if not visible_indices:
++            # Sorted, so shape k shows the k-th visible box in index order
++            # (the window query returns candidates in coordinate order).
++            visible_indices = np.sort(
++                np.asarray(self._spatial_index.intersection(query_box), dtype=np.intp)
++            )
++            self._pending_shape_state = ("2d", visible_indices, view_key_2d)
++            if not len(visible_indices):
+                 return []
+             paths = []
+             visible_boxes = self._bbox_store.data[visible_indices]
+@@ -577,6 +951,7 @@ class TurboBoxLayer(Shapes):
+             return paths
+         elif self.ndim == 3:
+             logger.debug("_current_paths: 3D mode - generating wireframe paths")
++            self._pending_shape_state = ("3d", None, None)
+             paths = []
+             for bbox in self._bbox_store.data:
+                 box_hash = hash(bbox.tobytes())
+@@ -606,6 +981,7 @@ class TurboBoxLayer(Shapes):
+         logger.debug("_perform_sync:%sboxes (interactive=%s)", len(new_data), self._interactive)
+         old_count = self._spatial_index._count if hasattr(self, "_spatial_index") else 0
+         new_count = len(new_data)
++        single_box_edit = False
+         if new_count == 0:
+             self._spatial_index = SpatialIndex(self.bounding_boxes)
+             logger.debug("Rebuilt spatial index (empty)")
+@@ -615,13 +991,19 @@ class TurboBoxLayer(Shapes):
+         elif new_count == old_count:
+             if changed_idx is not None:
+                 self._spatial_index.update_box(changed_idx, new_data[changed_idx])
++                single_box_edit = True
+                 logger.debug("Incremental spatial index update for box%s", changed_idx)
+             else:
+                 self._spatial_index = SpatialIndex(self.bounding_boxes)
+                 logger.debug("Rebuilt spatial index (%sboxes, same count)", new_count)
+         elif new_count > old_count:
+             n_added = new_count - old_count
+-            if n_added <= 10 or n_added / old_count < 0.2:
++            # Incremental add is only valid for an append: a re-insert (undo of a
++            # delete) or a batch with in-place edits shifts or changes old rows.
++            appended = np.array_equal(
++                self._spatial_index._boxes, np.asarray(new_data[:old_count], dtype=np.float32)
++            )
++            if appended and (n_added <= 10 or n_added / old_count < 0.2):
+                 new_boxes = self.bounding_boxes[old_count:]
+                 self._spatial_index.add_boxes(new_boxes)
+                 logger.debug("Incremental add:%sboxes (total=%s)", n_added, new_count)
+@@ -635,9 +1017,12 @@ class TurboBoxLayer(Shapes):
+             )
+             current_hashes = {hash(bbox.tobytes()) for bbox in new_data}
+             self._path_cache = {h: v for h, v in self._path_cache.items() if h in current_hashes}
+-        self._sync_shapes_from_bboxes()
+-        self.events.bboxes(value=self.bounding_boxes)
+-        self._event_manager.emit("updated", self.bounding_boxes)
++        if not (single_box_edit and self._incremental_shape_update(changed_idx, new_data)):
++            self._sync_shapes_from_bboxes()
++        # Read-only view of the shared store: no per-layer (N, 2, D) copy per notification.
++        view = self._bbox_store.data
++        self.events.bboxes(value=view)
++        self._event_manager.emit("updated", view)
+ 
+     def _set_view_slice(self) -> None:
+         """Override napari's view slice update to regenerate paths."""
+@@ -645,7 +1030,12 @@ class TurboBoxLayer(Shapes):
+             super()._set_view_slice()
+             return
+         super()._set_view_slice()
+-        if not self._sync_guard and self._bbox_store.data.size > 0:
++        if (
++            not self._sync_guard
++            and self._bbox_store.data.size > 0
++            and not getattr(self, "_is_creating", False)
++            and not getattr(self, "_napari_adding", False)
++        ):
+             logger.debug(
+                 "_set_view_slice called - regenerating paths (ndisplay=%s)",
+                 self._slice_input.ndisplay if self._slice_input else "?",
+@@ -757,45 +1147,74 @@ class TurboBoxLayer(Shapes):
+             self._sync_shapes_from_bboxes()
+ 
+     def _on_shapes_data_changed(self, event) -> None:
+-        """When the user edits the path data, rebuild the axis-aligned boxes."""
++        """Map a napari-side shape edit onto the store by ``event.action``.
++
++        The store is authoritative and the view shows only the boxes that
++        intersect the current slice, so the store is never rebuilt from
++        ``self.data``. Pre-change events (adding/removing/changing) never write;
++        a finished drawing (added) appends one box (hidden axes extruded,
++        clamped; a click without drag is dropped); a removal (removed) deletes
++        exactly the boxes behind the removed shapes; any other napari edit
++        (changed) is discarded by re-syncing from the store. Read-only layers
++        never write.
++        """
+         if self._sync_guard:
+             return
+         if hasattr(self, "_bbox_is_moving") and self._bbox_is_moving:
+             return
+-        if time.time() - self._drag_end_time < 0.1:
+-            logger.debug("Skipping _on_shapes_data_changed: within drag grace period")
++        action = str(getattr(event, "action", "") or "")
++        if action in ("adding", "removing", "changing"):
++            # Pre-change events: remember what napari is about to do; never write.
++            if action == "removing":
++                box_ids = self._displayed_box_ids()
++                self._pending_remove = [
++                    int(box_ids[p])
++                    for p in getattr(event, "data_indices", ())
++                    if box_ids is not None and 0 <= p < len(box_ids)
++                ]
++            elif action == "adding":
++                self._napari_adding = True  # keep napari's new shape until 'added'
+             return
+-        if hasattr(self, "_just_finished_drag") and self._just_finished_drag:
+-            logger.debug("Skipping _on_shapes_data_changed: _just_finished_drag=True")
++        self._napari_adding = False
++        pending, self._pending_remove = self._pending_remove, None
++        if getattr(self, "_just_finished_drag", False):
++            # napari's own post-release event of a TurboBox drag: nothing to write.
+             self._just_finished_drag = False
++            if action not in ("added", "removed"):
++                return
++        if not self._interactive:
++            self._sync_shapes_from_bboxes()
+             return
+-        paths: list[np.ndarray] = list(self.data)
+-        boxes = []
+-        new_2d_boxes = []
+-        for path in paths:
+-            bbox = bbox_from_path(path)
+-            if bbox is not None:
+-                if self._auto_extrude and self._is_2d_box(bbox):
+-                    new_2d_boxes.append(bbox)
+-                else:
+-                    boxes.append(self._expand_hidden_axes(bbox))
+-        if new_2d_boxes and self._auto_extrude:
+-            logger.debug("Auto-extruding%s2D boxes to 3D", len(new_2d_boxes))
+-            for bbox_2d in new_2d_boxes:
+-                bbox_3d = self._auto_extrude_bbox(bbox_2d)
+-                boxes.append(self._expand_hidden_axes(bbox_3d))
+-        with self._event_manager.batch():
+-            new_data = (
+-                ensure_bbox_array(np.stack(boxes), self.ndim)
+-                if boxes
+-                else np.empty((0, 2, self.ndim), dtype=float)
+-            )
+-            if new_data.size:
+-                self._validate_box(new_data)
+-            with self._bbox_store.batch_update():
+-                self._bbox_store.data = new_data
+-            if self._owns_store:
+-                self._perform_sync(new_data)
++        if action == "removed":
++            if pending:
++                self._bbox_store.remove_boxes(sorted(set(pending)))
++                self._undo_stack.push(self.bounding_boxes.copy(), f"Delete {len(pending)} box(es)")
++            else:
++                self._sync_shapes_from_bboxes()
++            return
++        if action == "added" and len(self.data) > 0:
++            bbox = bbox_from_path(np.asarray(self.data[-1], dtype=float))
++            self._sync_shapes_from_bboxes()  # drop napari's shape; the store re-renders it
++            if bbox is None or self._slice_input is None:
++                return
++            disp = list(self._slice_input.displayed)
++            if np.any(bbox[1, disp] - bbox[0, disp] < 1.0):
++                return  # click without drag: no box
++            if self._auto_extrude and self._is_2d_box(bbox):
++                bbox = self._auto_extrude_bbox(bbox)
++            bbox = self._expand_hidden_axes(bbox)
++            self.add_boxes(self._clamp_to_valid_range(bbox[None]))
++            return
++        self._sync_shapes_from_bboxes()  # 'changed' (vertex/move edits outside _on_mouse_drag)
++
++    def _displayed_box_ids(self) -> np.ndarray | None:
++        """Box index behind each currently displayed shape (None if unknown)."""
++        mode = getattr(self, "_shapes_mode", None)
++        if mode == "2d":
++            return self._shape_box_ids
++        if mode == "3d":
++            return np.arange(len(self._bbox_store.data))
++        return None
+ 
+     def _is_2d_box(self, bbox: np.ndarray) -> bool:
+         """Check if a bbox is essentially 2D (has a flat dimension)."""
+@@ -812,11 +1231,7 @@ class TurboBoxLayer(Shapes):
+             return bbox
+         slice_input = self._slice_input
+         displayed = slice_input.displayed
+-        current_step = np.asarray(slice_input.world_slice.point, dtype=float)
+-        if len(current_step) < self.ndim:
+-            current_step = np.pad(
+-                current_step, (self.ndim - len(current_step), 0), constant_values=0
+-            )
++        current_step = self._slice_point_data()
+         extrusion_range = None
+         if self._image_shape is not None:
+             hidden_axes = [ax for ax in range(self.ndim) if ax not in displayed]
+@@ -831,10 +1246,32 @@ class TurboBoxLayer(Shapes):
+         )
+         return extrude_2d_to_3d_box(bbox, displayed, current_step, extrusion_range)
+ 
++    def _current_shape_box_ids(self) -> np.ndarray | None:
++        """Box index shown by each 2D shape, if the bookkeeping matches the view."""
++        box_ids = getattr(self, "_shape_box_ids", None)
++        if (
++            box_ids is None
++            or getattr(self, "_slice_input", None) is None
++            or getattr(self, "_shapes_mode", None) != "2d"
++            or self._is_3d_view()
++            or self.nshapes != len(box_ids)
++        ):
++            return None
++        if self._slice_query()[2] != self._shapes_view_key:
++            return None
++        return box_ids
++
+     def _bbox_index_to_path_index(self, bbox_idx: int) -> int | None:
+         """Map a bbox index to its first corresponding shape/path index."""
+         if not self._bbox_store.data.size or bbox_idx >= self._bbox_store.data.shape[0]:
+             return None
++        box_ids = self._current_shape_box_ids()
++        if box_ids is not None:
++            # O(log N): shape k shows the k-th visible box (sorted indices).
++            pos = int(np.searchsorted(box_ids, bbox_idx))
++            return pos if pos < len(box_ids) and box_ids[pos] == bbox_idx else None
++        if getattr(self, "_shapes_mode", None) == "3d" and self._is_3d_view():
++            return int(bbox_idx)
+         cumulative = 0
+         for i in range(bbox_idx):
+             paths = self._paths_for_single_bbox(self._bbox_store.data[i])
+@@ -845,6 +1282,9 @@ class TurboBoxLayer(Shapes):
+         """Map a shape/path index to the corresponding bounding box index."""
+         if not self._bbox_store.data.size:
+             return None
++        box_ids = self._current_shape_box_ids()
++        if box_ids is not None:
++            return int(box_ids[path_idx]) if 0 <= path_idx < len(box_ids) else None
+         paths_per_bbox = self._count_paths_per_bbox()
+         if paths_per_bbox == 0:
+             return None
+@@ -872,12 +1312,8 @@ class TurboBoxLayer(Shapes):
+         if not hasattr(self, "_slice_input") or self._slice_input is None:
+             return path_from_bbox(bbox)
+         slice_input = self._slice_input
+-        if slice_input.ndisplay == 2:
+-            current_step = np.asarray(slice_input.world_slice.point, dtype=float)
+-            if len(current_step) < self.ndim:
+-                current_step = np.pad(
+-                    current_step, (self.ndim - len(current_step), 0), constant_values=0
+-                )
++        if not self._is_3d_view():
++            current_step = self._slice_point_data()
+             return slice_paths_from_bbox(bbox, slice_input.displayed, current_step)
+         if self.ndim == 3:
+             # One wireframe path per box — must match _current_paths' 3D
+@@ -895,10 +1331,7 @@ class TurboBoxLayer(Shapes):
+         if hasattr(self, "_slice_input") and self._slice_input is not None:
+             displayed_axes = tuple(self._slice_input.displayed)
+             hidden_axes = [ax for ax in range(self.ndim) if ax not in displayed_axes]
+-            step_point = self._slice_input.world_slice.point
+-            if len(step_point) < self.ndim:
+-                step_point = np.pad(step_point, (self.ndim - len(step_point), 0), constant_values=0)
+-            current_step = np.asarray(step_point, dtype=float)
++            current_step = self._slice_point_data()
+         elif hasattr(self, "dims"):
+             displayed_axes = tuple(self.dims.displayed)
+             hidden_axes = [ax for ax in range(self.ndim) if ax not in displayed_axes]
+@@ -919,6 +1352,11 @@ class TurboBoxLayer(Shapes):
+         if len(candidates) == 0:
+             return (None, False)
+         candidates = sorted(candidates)
++        # Nested/overlapping boxes: the innermost (smallest displayed area) box wins;
++        # the stable sort keeps the lower index on ties.
++        disp_list = list(displayed_axes)
++        data = self._bbox_store.data
++        candidates.sort(key=lambda i: float(np.prod(data[i, 1, disp_list] - data[i, 0, disp_list])))
+         for i in candidates:
+             bbox = self._bbox_store.data[i]
+             mins, maxs = (bbox[0], bbox[1])
+@@ -938,10 +1376,17 @@ class TurboBoxLayer(Shapes):
+         logger.debug("Hit test: position%sis not inside any visible bbox on this slice", pos)
+         return (None, False)
+ 
+-    def _drag_along_slice_axis(self, indices, coord):
+-        """Override napari's drag to prevent default behavior."""
+-        logger.debug("_drag_along_slice_axis() called - BLOCKED")
+-        return
++    def _reset_editable(self) -> None:
++        """napari calls this after every data-setter call; keep read-only layers read-only."""
++        super()._reset_editable()
++        if not getattr(self, "_interactive", True):
++            self.editable = False
++
++    @Shapes.editable.setter
++    def editable(self, editable: bool) -> None:
++        # napari's layer controls also set ``editable`` directly (on creation and
++        # on every display change): a read-only layer stays read-only.
++        Shapes.editable.fset(self, editable and getattr(self, "_interactive", True))
+ 
+     def _compute_vertices_and_box(self):
+         """Override to ensure _value is always valid.
+@@ -991,7 +1436,7 @@ class TurboBoxLayer(Shapes):
+         in_add_mode = hasattr(self, "mode") and self.mode == Mode.ADD_RECTANGLE
+         is_drawing = hasattr(self, "_mouse_drag_gen") and len(self._mouse_drag_gen) > 1
+         in_pan_zoom = hasattr(self, "mode") and self.mode == Mode.PAN_ZOOM
+-        if in_add_mode or is_drawing or in_pan_zoom:
++        if in_add_mode or is_drawing or in_pan_zoom or not self._interactive:
+             logger.debug(
+                 "_on_mouse_drag: Skipping (in_add_mode=%s, is_drawing=%s, in_pan_zoom=%s)",
+                 in_add_mode,
+@@ -1004,17 +1449,19 @@ class TurboBoxLayer(Shapes):
+             logger.debug(
+                 "mouse_press at position=%s, modifiers=%s", event.position, event.modifiers
+             )
+-            bbox_idx, is_near_edge = self._hit_test_bbox(event.position)
++            press_pos = np.asarray(self.world_to_data(event.position), dtype=float)
++            bbox_idx, is_near_edge = self._hit_test_bbox(press_pos)
+             if bbox_idx is not None:
+                 logger.debug("Click inside bbox %s, forcing selection", bbox_idx)
+                 path_idx = self._bbox_index_to_path_index(bbox_idx)
+                 if path_idx is not None:
+                     self.selected_data = {path_idx}
++                    self._set_highlight(force=True)  # outline the newly grabbed box right away
+                 mode = "resize" if is_near_edge or "Shift" in event.modifiers else "translate"
+                 self._drag_state = {
+                     "index": bbox_idx,
+                     "start_bbox": self.bounding_boxes[bbox_idx].copy(),
+-                    "start_pos": np.asarray(event.position, dtype=float),
++                    "start_pos": press_pos,
+                     "dims_displayed": tuple(event.dims_displayed),
+                     "mode": mode,
+                 }
+@@ -1041,7 +1488,7 @@ class TurboBoxLayer(Shapes):
+                 if bbox_idx >= self._bbox_store.data.shape[0]:
+                     logger.warning("bbox_idx%sout of range", bbox_idx)
+                     break
+-                current_pos = np.asarray(event.position, dtype=float)
++                current_pos = np.asarray(self.world_to_data(event.position), dtype=float)
+                 start_pos = self._drag_state["start_pos"]
+                 delta = current_pos - start_pos
+                 dims_displayed = self._drag_state["dims_displayed"]
+@@ -1051,6 +1498,11 @@ class TurboBoxLayer(Shapes):
+                     for axis in dims_displayed:
+                         if axis < self.ndim:
+                             nd_delta[axis] = delta[axis]
++                    upper = self._axis_maxes()
++                    if upper is not None:
++                        # Stop the box at the image border instead of letting
++                        # the per-coordinate clamp below shrink it.
++                        nd_delta = np.clip(nd_delta, -start_bbox[0], upper - start_bbox[1])
+                     new_bbox = start_bbox + np.stack([nd_delta, nd_delta], axis=0)
+                     logger.debug("Translating by%s", nd_delta)
+                 else:
+@@ -1078,8 +1530,9 @@ class TurboBoxLayer(Shapes):
+                     new_bbox = np.stack([mins, maxs], axis=0)
+                     logger.debug("Resizing")
+                 new_bbox = self._clamp_to_valid_range(new_bbox[None, ...])[0]
+-                self._bbox_store.update_box_silent(bbox_idx, new_bbox)
+-                self._sync_shapes_from_bboxes()
++                # Notify listeners: live 2D views (incl. this one) re-render
++                # from the store; on_commit (3D) views stay deferred.
++                self._bbox_store.update_box(bbox_idx, new_bbox)
+                 yield
+         finally:
+             if self._session_active:
+@@ -1100,28 +1553,25 @@ class TurboBoxLayer(Shapes):
+             self._just_finished_drag = True
+             self._drag_end_time = time.time()
+             logger.debug("finally: Set _just_finished_drag = True and timestamp")
+-            logger.debug("finally: Triggering final _sync_shapes_from_bboxes()")
+-            # The dragged box moved via update_box_silent during the drag, which
+-            # never touched the spatial index, so the index still holds the
+-            # box's pre-drag value. An incremental update of just that box
+-            # (O(shifted)) is correct and avoids an O(N log N) full rebuild on
+-            # every drag-release. Fall back to a full rebuild only if the index
+-            # is in an unexpected state (missing, or count mismatch).
++            # Every drag step went through update_box and this layer's sync, so
++            # its spatial index and shapes already show the final box. Rebuild
++            # only if that bookkeeping is not intact (index count mismatch, or
++            # the shapes no longer match the view); otherwise just rasterize the
++            # thumbnail that was suppressed during the drag.
+             idx_count = getattr(getattr(self, "_spatial_index", None), "_count", -1)
+-            if (
+-                drag_state_idx is not None
+-                and idx_count == len(self._bbox_store.data)
+-                and 0 <= drag_state_idx < idx_count
++            if idx_count != len(self._bbox_store.data):
++                self._spatial_index = SpatialIndex(self.bounding_boxes)
++                self._sync_shapes_from_bboxes()
++            elif drag_state_idx is None or (
++                self._current_shape_box_ids() is None
++                and not (getattr(self, "_shapes_mode", None) == "3d" and self._is_3d_view())
+             ):
+-                self._spatial_index.update_box(
+-                    drag_state_idx, self._bbox_store.data[drag_state_idx]
+-                )
++                self._sync_shapes_from_bboxes()
+             else:
+-                self._spatial_index = SpatialIndex(self.bounding_boxes)
+-            self._sync_shapes_from_bboxes()
+-            if not self._owns_store and drag_state_idx is not None:
+-                logger.debug("finally: Notifying synchronized layers")
+-                self._bbox_store.update_box(drag_state_idx, self._bbox_store.data[drag_state_idx])
++                self._update_thumbnail()
++                if self.selected_data:
++                    self._selected_box = self.interaction_box(self.selected_data)
++                    self._set_highlight(force=True)
+             if hasattr(self, "_undo_stack"):
+                 self._undo_stack.push(self.bounding_boxes.copy(), "Move/Resize box")
+                 logger.debug("finally: Pushed undo state")
+@@ -1220,3 +1670,15 @@ class TurboBoxLayer(Shapes):
+             "history_position": self._undo_stack.current_position,
+             "memory_usage_kb": self._undo_stack.get_memory_usage() / 1024,
+         }
++
++
++def _install_drag_modes() -> None:
++    from napari.layers.shapes._shapes_constants import Mode
++
++    modes = dict(Shapes._drag_modes)
++    modes[Mode.SELECT] = _select_unless_bbox_drag
++    modes[Mode.DIRECT] = _select_unless_bbox_drag
++    TurboBoxLayer._drag_modes = modes
++
++
++_install_drag_modes()
+diff --git a/src/napari_turbobox/napari.yaml b/src/napari_turbobox/napari.yaml
+index a1d9105..6673805 100644
+--- a/src/napari_turbobox/napari.yaml
++++ b/src/napari_turbobox/napari.yaml
+@@ -1,5 +1,5 @@
+ name: napari-turbobox
+-display_name: napari nD Bounding Boxes
++display_name: napari-TurboBox
+ contributions:
+   commands:
+     - id: napari-turbobox.create_widget
+diff --git a/src/napari_turbobox/spatial_index.py b/src/napari_turbobox/spatial_index.py
+index 4bfbbc7..6f9fb29 100644
+--- a/src/napari_turbobox/spatial_index.py
++++ b/src/napari_turbobox/spatial_index.py
+@@ -78,6 +78,29 @@ class SpatialIndex:
+                 inv_maxs = np.empty_like(sort_idx_max)
+                 inv_maxs[sort_idx_max] = np.arange(self._count)
+                 self._position_in_sorted_maxs.append(inv_maxs)
++        self._max_extent = (
++            (boxes[:, 1].astype(float) - boxes[:, 0].astype(float)).max(axis=0)
++            if self._count > 0
++            else np.zeros(self._ndim)
++        )
++
++    def _window(self, d: int, q_lo: float, q_hi: float) -> np.ndarray:
++        """Boxes intersecting [q_lo, q_hi] along dimension ``d``.
++
++        Every box with ``max >= q_lo`` and ``min <= q_hi`` has its min in
++        ``[q_lo - max_extent_d, q_hi]``, a contiguous run of the sorted mins:
++        O(log N + window) instead of materialising all mins <= q_hi.
++        """
++        lo = 0
++        if np.isfinite(q_lo):
++            ext = self._max_extent[d]
++            # float64 rounding of (q_lo - ext) may exceed the exact bound by a few
++            # ulps; widen by a relative margin (extra candidates are filtered below).
++            bound = q_lo - ext - 4 * np.finfo(np.float64).eps * (abs(q_lo) + ext + 1e-300)
++            lo = np.searchsorted(self._sorted_mins[d], bound, side="left")
++        hi = np.searchsorted(self._sorted_mins[d], q_hi, side="right")
++        cand = self._sorted_indices_mins[d][lo:hi]
++        return cand[self._boxes[cand, 1, d].astype(np.float64) >= q_lo]
+ 
+     def query_point(self, point: np.ndarray) -> list[int]:
+         """Find indices of boxes that contain the given point.
+@@ -102,12 +125,8 @@ class SpatialIndex:
+             return []
+         candidates = None
+         for d in range(min(len(point), self._ndim)):
+-            val = point[d]
+-            idx_min = np.searchsorted(self._sorted_mins[d], val, side="right")
+-            valid_mins = self._sorted_indices_mins[d][:idx_min]
+-            idx_max = np.searchsorted(self._sorted_maxs[d], val, side="left")
+-            valid_maxs = self._sorted_indices_maxs[d][idx_max:]
+-            valid_in_dim = np.intersect1d(valid_mins, valid_maxs, assume_unique=True)
++            val = float(point[d])
++            valid_in_dim = self._window(d, val, val)
+             if candidates is None:
+                 candidates = valid_in_dim
+             else:
+@@ -135,18 +154,19 @@ class SpatialIndex:
+         query_mins = box[0]
+         query_maxs = box[1]
+         for d in range(min(len(query_mins), self._ndim)):
+-            idx_min = np.searchsorted(self._sorted_mins[d], query_maxs[d], side="right")
+-            valid_mins = self._sorted_indices_mins[d][:idx_min]
+-            idx_max = np.searchsorted(self._sorted_maxs[d], query_mins[d], side="left")
+-            valid_maxs = self._sorted_indices_maxs[d][idx_max:]
+-            valid_in_dim = np.intersect1d(valid_mins, valid_maxs, assume_unique=True)
++            q_lo, q_hi = float(query_mins[d]), float(query_maxs[d])
++            if q_lo == -np.inf and q_hi == np.inf:
++                continue  # unbounded (displayed) axis: no constraint
++            valid_in_dim = self._window(d, q_lo, q_hi)
+             if candidates is None:
+                 candidates = valid_in_dim
+             else:
+                 candidates = np.intersect1d(candidates, valid_in_dim, assume_unique=True)
+             if len(candidates) == 0:
+                 return []
+-        return candidates.tolist() if candidates is not None else []
++        if candidates is None:
++            return list(range(self._count))
++        return candidates.tolist()
+ 
+     def query_point_approximate(self, point: np.ndarray, tolerance: float = 0.0) -> list[int]:
+         """Find indices of boxes that contain the point within a tolerance.
+@@ -208,6 +228,11 @@ class SpatialIndex:
+                 inv_maxs = np.empty_like(sort_idx_max)
+                 inv_maxs[sort_idx_max] = np.arange(self._count)
+                 self._position_in_sorted_maxs.append(inv_maxs)
++        self._max_extent = (
++            (boxes[:, 1].astype(float) - boxes[:, 0].astype(float)).max(axis=0)
++            if self._count > 0
++            else np.zeros(self._ndim)
++        )
+ 
+     def update_box(self, index: int, new_bbox: np.ndarray) -> None:
+         """Update a single bounding box in the spatial index.
+@@ -227,6 +252,9 @@ class SpatialIndex:
+             return
+         old_bbox = self._boxes[index].copy()
+         self._boxes[index] = new_bbox
++        self._max_extent = np.maximum(
++            self._max_extent, self._boxes[index, 1].astype(float) - self._boxes[index, 0].astype(float)
++        )
+         for d in range(self._ndim):
+             old_val_min = old_bbox[0, d]
+             new_val_min = new_bbox[0, d]
+@@ -311,6 +339,9 @@ class SpatialIndex:
+             self.rebuild(self._boxes)
+             logger.debug("Added%sboxes to spatial index (initial build)", n_new)
+             return
++        self._max_extent = np.maximum(
++            self._max_extent, (new_boxes[:, 1].astype(float) - new_boxes[:, 0].astype(float)).max(axis=0)
++        )
+         use_incremental_merge = n_new <= old_count // 10
+         for d in range(self._ndim):
+             new_mins = new_boxes[:, 0, d]
+diff --git a/src/napari_turbobox/widget.py b/src/napari_turbobox/widget.py
+index 0045b02..1d42557 100644
+--- a/src/napari_turbobox/widget.py
++++ b/src/napari_turbobox/widget.py
+@@ -65,6 +65,9 @@ class BoundingBoxControlWidget(QWidget):
+         if self._watched_layer is not None:
+             try:
+                 self._watched_layer.events.bboxes.disconnect(self._on_bboxes_changed)
++                self._watched_layer._bbox_store.events.session_ended.disconnect(
++                    self._on_store_session_ended
++                )
+             except Exception:
+                 pass
+         if self.viewer is not None:
+@@ -208,6 +211,7 @@ class BoundingBoxControlWidget(QWidget):
+             logger.warning("Failed to get ndim:%s", e)
+             ndim = 3
+         image_shape = None
++        transform = {}
+         try:
+             logger.debug("Looking for image layer to get shape...")
+             active_image = next(
+@@ -218,7 +222,9 @@ class BoundingBoxControlWidget(QWidget):
+                     (lyr for lyr in reversed(self.viewer.layers) if isinstance(lyr, Image)), None
+                 )
+             if active_image is not None:
+-                image_shape = tuple(active_image.data.shape[-active_image.ndim :])
++                image_shape = tuple(active_image.data.shape[: active_image.ndim])  # RGB: no channel axis
++                if active_image.ndim == ndim:  # boxes live in the image's voxel space
++                    transform = {"scale": active_image.scale, "translate": active_image.translate}
+                 logger.debug("Found image:%s, shape=%s", active_image.name, image_shape)
+             else:
+                 logger.debug("No image layer found, bboxes won't be clamped to bounds")
+@@ -227,7 +233,7 @@ class BoundingBoxControlWidget(QWidget):
+         try:
+             logger.debug("Creating TurboBoxLayer(ndim=%d, image_shape=%s)...", ndim, image_shape)
+             layer = TurboBoxLayer(
+-                ndim=ndim, image_shape=image_shape, edge_width=5.0, edge_color="cyan"
++                ndim=ndim, image_shape=image_shape, edge_width=5.0, edge_color="cyan", **transform
+             )
+             logger.debug("Layer created: %s", layer)
+             layer.name = self._unique_layer_name()
+@@ -267,6 +273,9 @@ class BoundingBoxControlWidget(QWidget):
+         if self._watched_layer is not None:
+             try:
+                 self._watched_layer.events.bboxes.disconnect(self._on_bboxes_changed)
++                self._watched_layer._bbox_store.events.session_ended.disconnect(
++                    self._on_store_session_ended
++                )
+                 logger.debug("Disconnected bbox events from '%s'", self._watched_layer.name)
+             except Exception as e:
+                 logger.warning("Could not disconnect from previous layer:%s", e)
+@@ -278,6 +287,7 @@ class BoundingBoxControlWidget(QWidget):
+             return
+         try:
+             layer.events.bboxes.connect(self._on_bboxes_changed)
++            layer._bbox_store.events.session_ended.connect(self._on_store_session_ended)
+             self._watched_layer = layer
+             logger.debug("Connected bbox events to '%s'", layer.name)
+         except Exception as e:
+@@ -285,23 +295,48 @@ class BoundingBoxControlWidget(QWidget):
+         self._update_bbox_list()
+         self._update_settings_display()
+         self.status_label.setText(
+-            f"{layer.nshapes} bounding box(es) available. Click to select or use napari tools to edit."
++            f"{self._count_text(layer)} Click to select or use napari tools to edit."
+         )
+ 
+-    def _on_bboxes_changed(self, event) -> None:
+-        """Called when bboxes are added, removed, or modified in the layer."""
+-        self._update_bbox_list()
++    @staticmethod
++    def _count_text(layer: TurboBoxLayer) -> str:
++        total = len(layer.bounding_boxes)
++        return f"{total} bounding box(es) ({layer.nshapes} on this view)."
++
++    def _on_bboxes_changed(self, event=None) -> None:
++        """Called when bboxes are added, removed, or modified in the layer.
++
++        During a drag the layer emits this on every mouse move; rebuilding the
++        list of all N boxes each time would stall the drag, so the refresh is
++        deferred to the end of the store's edit session.
++        """
+         layer = self._current_layer()
++        if layer is not None and layer._bbox_store.in_edit_session:
++            self._refresh_pending = True
++            return
++        self._refresh_pending = False
++        # A drag release reports the same boxes twice (session end, then the
++        # layer's bboxes event); rebuild the list only when the boxes changed.
++        data = layer._bbox_store.data if layer is not None else None
++        signature = None if data is None else (id(layer), data.shape, hash(data.tobytes()))
++        if signature is None or signature != getattr(self, "_list_signature", None):
++            self._update_bbox_list()
++            self._list_signature = signature
+         if layer:
+             self.status_label.setText(
+-                f"{layer.nshapes} bounding box(es) available. Click to select or use napari tools to edit."
++                f"{self._count_text(layer)} Click to select or use napari tools to edit."
+             )
+         self._update_settings_display()
+ 
++    def _on_store_session_ended(self, event=None) -> None:
++        if getattr(self, "_refresh_pending", False):
++            self._on_bboxes_changed()
++
+     def _selected_bbox_index(self, layer: TurboBoxLayer) -> int | None:
+         if not layer.selected_data:
+             return None
+-        return next(iter(layer.selected_data))
++        path_idx = next(iter(layer.selected_data))  # a shape index of the current view
++        return layer._path_index_to_bbox_index(path_idx)
+ 
+     def _start_draw_mode(self) -> None:
+         """Enable interactive bbox drawing mode."""
+@@ -317,45 +352,13 @@ class BoundingBoxControlWidget(QWidget):
+         self.status_label.setText(
+             "🖱️ DRAW MODE ACTIVE: Click and drag anywhere in the viewer to draw a bounding box!"
+         )
+-        if not hasattr(self, "_draw_start"):
+-            self._draw_start = None
+-            self._drawing = False
+-
+-        @self.viewer.mouse_drag_callbacks.append
+-        def draw_bbox(viewer, event):
+-            if event.type == "mouse_press":
+-                self._draw_start = np.array(event.position)
+-                self._drawing = True
+-                logger.debug("mouse_press: Draw start at%s", self._draw_start)
+-                event.handled = True
+-            elif event.type == "mouse_move" and self._drawing:
+-                event.handled = True
+-            elif event.type == "mouse_release" and self._drawing:
+-                self._drawing = False
+-                if self._draw_start is not None:
+-                    end_pos = np.array(event.position)
+-                    logger.debug("mouse_release: Draw end at%s", end_pos)
+-                    mins = np.minimum(self._draw_start, end_pos)[-layer.ndim :]
+-                    maxs = np.maximum(self._draw_start, end_pos)[-layer.ndim :]
+-                    for i in range(len(mins)):
+-                        if np.abs(maxs[i] - mins[i]) < 1.0:
+-                            maxs[i] = mins[i] + 10.0
+-                    try:
+-                        layer.add_boxes([[mins, maxs]])
+-                        logger.debug("Bbox added successfully!")
+-                        self._update_status()
+-                        self.status_label.setText(
+-                            f"✅ Bounding box created! Now you have {layer.nshapes} box(es). Click 'Draw New BBox' to add another."
+-                        )
+-                    except Exception as e:
+-                        logger.exception("Error adding bbox:%s", e)
+-                        self.status_label.setText(f"❌ Error creating bbox: {e}")
+-                    self._draw_start = None
+-                    if draw_bbox in viewer.mouse_drag_callbacks:
+-                        viewer.mouse_drag_callbacks.remove(draw_bbox)
+-                        logger.debug("Draw callback removed")
+-                event.handled = True
++        # napari (>= 0.6) calls a non-generator drag callback on press only, and it does not
++        # stop the layer's own drag handler, so the former viewer-level callback never added
++        # a box. Use napari's Add Rectangle on the layer; the layer maps the finished
++        # rectangle onto the store (hidden axes extruded, clamped).
++        from napari.layers.shapes._shapes_constants import Mode
+ 
++        layer.mode = Mode.ADD_RECTANGLE
+         logger.info("Mouse drag callback registered for drawing")
+ 
+     def _create_from_image(self) -> None:
+@@ -367,7 +370,7 @@ class BoundingBoxControlWidget(QWidget):
+             self.status_label.setText("No image layer available to derive bounds.")
+             return
+         mins = np.zeros(image.ndim)
+-        maxs = np.asarray(image.data.shape[-image.ndim :], dtype=float)
++        maxs = np.asarray(image.data.shape[: image.ndim], dtype=float) - 1.0  # last voxel index
+         if image.ndim > layer.ndim:
+             mins = mins[-layer.ndim :]
+             maxs = maxs[-layer.ndim :]
+@@ -389,21 +392,29 @@ class BoundingBoxControlWidget(QWidget):
+         displayed = list(dims.displayed)
+         not_displayed = list(dims.not_displayed)
+         logger.debug("Viewport: displayed=%s, not_displayed=%s", displayed, not_displayed)
+-        mins = np.zeros(layer.ndim, dtype=float)
+-        maxs = np.zeros(layer.ndim, dtype=float)
+-        for i, axis in enumerate(not_displayed):
+-            if axis < layer.ndim:
+-                current_val = dims.current_step[i]
+-                mins[axis] = max(0, current_val - 0.5)
+-                maxs[axis] = min(dims.range[i][1], current_val + 0.5)
+-        for axis in displayed:
+-            if axis < layer.ndim:
+-                full_range = dims.range[axis]
+-                span = full_range[1] - full_range[0]
+-                mins[axis] = full_range[0] + span * 0.25
+-                maxs[axis] = full_range[0] + span * 0.75
+-        logger.debug("Creating viewport bbox: mins=%s, maxs=%s", mins, maxs)
+-        layer.add_boxes([[mins, maxs]])
++        # dims.point / dims.range are world coordinates; boxes live in the layer's
++        # data space (scale/translate copied from the image), so convert first.
++        point = np.asarray(layer.world_to_data(np.asarray(dims.point, dtype=float)), dtype=float)
++        lo = np.asarray(layer.world_to_data([r[0] for r in dims.range]), dtype=float)
++        hi = np.asarray(layer.world_to_data([r[1] for r in dims.range]), dtype=float)
++        lo, hi = np.minimum(lo, hi), np.maximum(lo, hi)  # a negative scale flips the order
++        offset = dims.ndim - layer.ndim  # layer axes are the trailing world axes
++        mins = point.copy()
++        maxs = point + 1.0  # one-slice-thick box along the hidden axes (minimum extent 1)
++        for world_axis in displayed:
++            axis = world_axis - offset
++            if 0 <= axis < layer.ndim:
++                span = hi[axis] - lo[axis]
++                mins[axis] = lo[axis] + span * 0.25
++                maxs[axis] = lo[axis] + span * 0.75
++        box = layer._clamp_to_valid_range(np.asarray([[mins, maxs]]))  # into image_shape - 1
++        logger.debug("Creating viewport bbox: mins=%s, maxs=%s", box[0, 0], box[0, 1])
++        try:
++            layer.add_boxes(box)
++        except Exception as e:
++            self.status_label.setText(f"❌ Could not fit the viewport: {e}")
++            logger.exception("Viewport bbox error:%s", e)
++            return
+         self._update_status()
+ 
+     def _clear_boxes(self) -> None:
+@@ -421,7 +432,7 @@ class BoundingBoxControlWidget(QWidget):
+             self.bbox_list.clear()
+             return
+         self._update_bbox_list()
+-        text = f"{layer.nshapes} bounding box(es) available."
++        text = self._count_text(layer)
+         idx = self._selected_bbox_index(layer)
+         if idx is not None and idx < layer.bounding_boxes.shape[0]:
+             mins, maxs = layer.bounding_boxes[idx]
+diff --git a/src/requirements/legacy.txt b/src/requirements/legacy.txt
+index e69de29..bb0c13e 100644
+--- a/src/requirements/legacy.txt
++++ b/src/requirements/legacy.txt
+@@ -0,0 +1,19 @@
++# Reference environment "legacy-napari" (operator conda env): napari-bbox (git b7adf16,
++# version string 0.0.9) on napari 0.4.19. TB-REV-02 identified it as the environment that
++# most likely produced the napari-bbox records in paper_results/.
++# Python 3.9.25, macOS, Apple M2 Pro.
++# (freeze of the operator environment; not part of the repository)
++# napari-TurboBox cannot be installed here (it requires napari >= 0.6.6).
++# napari 0.4.19 has no triangulation-backend option; bermuda is not installed.
++napari==0.4.19.post1
++napari-bbox @ git+https://github.com/bauerdavid/napari-bbox.git@b7adf167e4dac9f2dc31bf055143cc252b8cc59c
++numpy==1.26.4
++vispy==0.14.3
++PyQt5==5.15.11
++PyQt5-Qt5==5.15.18
++PyQt5-sip==12.17.1
++QtPy==2.4.3
++superqt==0.7.6
++npe2==0.7.9
++scipy==1.13.1
++pandas==2.3.3
+diff --git a/src/requirements/modern.txt b/src/requirements/modern.txt
+index e69de29..e4c66cf 100644
+--- a/src/requirements/modern.txt
++++ b/src/requirements/modern.txt
+@@ -0,0 +1,23 @@
++# Benchmark environment "bb011_n070": TB-PERF-01 final run, both tools in one environment
++# (records/TB-PERF-01/run_final.sh). Python 3.12.13 (conda), macOS 27.0, Apple M2 Pro.
++# Full pip freeze: paper_results_v2/environment/pip_freeze_benchmark_env.txt
++# napari-TurboBox is not installed in this environment; the benchmark imports it from
++# src/ (PYTHONPATH=src).
++napari==0.7.0
++napari-bbox==0.1.1  # the freeze shows a local copy of the PyPI 0.1.1 sdist
++numpy==2.4.3
++vispy==0.16.1
++bermuda==0.1.7  # napari's compiled triangulation backend (napari[optional])
++PyQt6==6.10.2
++PyQt6-Qt6==6.10.2
++PyQt6-sip==13.11.1
++QtPy==2.4.3
++superqt==0.8.0
++npe2==0.8.1
++scipy==1.17.1
++# aggregation and figures (python -m paper_benchmarks.make_final_figures)
++pandas==3.0.1
++matplotlib==3.11.2
++# tests
++pytest==9.0.2
++pytest-qt==4.5.0

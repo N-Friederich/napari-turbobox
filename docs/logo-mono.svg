@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="napari-TurboBox">
+  <!-- One-ink version of logo.svg for greyscale figures and print: every stroke
+       uses currentColor; hidden edges keep the 45 % tint. Same geometry. -->
+  <g fill="none" stroke="currentColor" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M136 56V152H232M136 152L88 200" stroke-opacity="0.45"/>
+    <path d="M88 104H184V200H88ZM88 104L136 56H232V152L184 200M184 104L232 56"/>
+    <path d="M40 120H56M24 152H56M40 184H56"/>
+  </g>
+</svg>

@@ -1,0 +1,70 @@
+{
+ "case": "05_instant_sim_polii_clusters",
+ "modality": "instant structured illumination microscopy (iSIM), live",
+ "objects": "4 nuclei + 34 RNA Pol II Ser5P clusters (threshold proposals)",
+ "dataset": "Hajiabadi et al. 2022 (PNAS Nexus); Zenodo doi:10.5281/zenodo.5568871 (CC-BY-4.0)",
+ "volume": "Processed_images/EmbryoA/highSNR_100ms1.tif",
+ "box_source": "threshold segmentation adapted from the paper (no annotations available)",
+ "n_nuclei": 4,
+ "n_clusters": 34,
+ "check": {
+  "boxes": 38,
+  "valid": 38
+ },
+ "export": {
+  "boxes": 38,
+  "coco_images": 21,
+  "coco_annotations": 342,
+  "yolo_files": 21,
+  "coco_two_classes_annotations": 342
+ },
+ "drag": {
+  "box_index": 2,
+  "before": [
+   [
+    0.0,
+    323.0,
+    687.0
+   ],
+   [
+    20.0,
+    494.0,
+    798.0
+   ]
+  ],
+  "after": [
+   [
+    0.0,
+    365.0,
+    687.0
+   ],
+   [
+    20.0,
+    536.0,
+    798.0
+   ]
+  ],
+  "intended_shift_zyx": [
+   0.0,
+   42.0,
+   27.0
+  ],
+  "shift_zyx": [
+   0.0,
+   42.0,
+   0.0
+  ],
+  "valid": true,
+  "views_show_moved_box": {
+   "XZ (read-only)": true,
+   "YZ (read-only)": true,
+   "3D (read-only)": true
+  }
+ },
+ "image_shape": [
+  21,
+  599,
+  799
+ ],
+ "n_boxes": 38
+}

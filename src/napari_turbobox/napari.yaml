@@ -1,0 +1,15 @@
+name: napari-turbobox
+display_name: napari-TurboBox
+categories:
+  - Annotation
+  - Visualization
+contributions:
+  commands:
+    - id: napari-turbobox.create_widget
+      title: Open BBox Control Panel
+      python_name: napari_turbobox._factory:create_control_panel
+
+  widgets:
+    - command: napari-turbobox.create_widget
+      display_name: BBox Control Panel
+

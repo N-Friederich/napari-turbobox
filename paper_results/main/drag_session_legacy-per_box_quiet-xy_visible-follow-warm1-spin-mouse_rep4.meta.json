@@ -1,0 +1,91 @@
+{
+ "csv": "drag_session_legacy-per_box_quiet-xy_visible-follow-warm1-spin-mouse_rep4.csv",
+ "tool": "legacy",
+ "legacy_sync": "per_box_quiet",
+ "edit_view": "mouse",
+ "drag_protocol": "xy_visible",
+ "tri_backend_requested": "default",
+ "thumbnails": "off",
+ "ns": "10,50,100,200,500,1000",
+ "ortho_follow": true,
+ "warmup": 1,
+ "pacing": "spin",
+ "replicate": 4,
+ "drags": 50,
+ "started": "2026-09-25T17:27:30+0200",
+ "finished": "2026-09-25T17:45:09+0200",
+ "harness_commit": "1b2ba33dd8bffe0235af23a29e1e2cb79749fbbc",
+ "harness_branch": "perf/incremental-sync",
+ "harness_dirty": true,
+ "code_state": {
+  "base_commit": "1b2ba33dd8bffe0235af23a29e1e2cb79749fbbc",
+  "dirty": true,
+  "tracked_diff_sha256": "1cf6bf84b6a37bd2da3e440dc72f0f632519124fe3de784a2cc0701c0db1d6c7",
+  "untracked": {},
+  "combined_sha256": "a8ad8214db5ea2e6ae42e1161bc06e652b7ebe3b4637f30bd68b788dae8b5eea",
+  "tracked_diff_cmd": "git diff --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers --src-prefix=a/ --dst-prefix=b/ --binary HEAD -- src paper_benchmarks"
+ },
+ "code_state_end": {
+  "base_commit": "1b2ba33dd8bffe0235af23a29e1e2cb79749fbbc",
+  "dirty": true,
+  "tracked_diff_sha256": "1cf6bf84b6a37bd2da3e440dc72f0f632519124fe3de784a2cc0701c0db1d6c7",
+  "untracked": {},
+  "combined_sha256": "a8ad8214db5ea2e6ae42e1161bc06e652b7ebe3b4637f30bd68b788dae8b5eea",
+  "tracked_diff_cmd": "git diff --no-color --no-ext-diff --no-textconv --no-renames --diff-algorithm=myers --src-prefix=a/ --dst-prefix=b/ --binary HEAD -- src paper_benchmarks"
+ },
+ "code_state_unchanged": true,
+ "env_freeze_sha256": "5d3c862b72f571f9cbf776927424101e49ededb506d73edc8092c3e7126d4e06",
+ "python": "3.12.13",
+ "napari": "0.7.0",
+ "numpy": "2.4.3",
+ "vispy": "0.16.1",
+ "qt_api": "PyQt6",
+ "qt_version": "6.10.0",
+ "qt_platform": "cocoa",
+ "triangulation_backend": "fastest_available",
+ "triangulation_mesher": "_set_meshes",
+ "pyqt_or_pyside": "6.10.2",
+ "napari_turbobox": "0.2.0",
+ "napari_bbox": "0.1.1",
+ "plugin_file": "records/TB-REV-02/envs/bb011_n070/lib/python3.12/site-packages/napari_bbox/__init__.py",
+ "host": "<redacted>",
+ "machine": "arm64",
+ "os": "macOS-27.0-arm64-arm-64bit",
+ "gc_enabled": true,
+ "gc_threshold": [
+  700,
+  10,
+  10
+ ],
+ "process_state_start": {
+  "nice": 0,
+  "ps": "46 S",
+  "power": "Now drawing from 'AC Power'",
+  "loadavg": [
+   2.47509765625,
+   2.625,
+   2.63916015625
+  ]
+ },
+ "process_state_end": {
+  "nice": 0,
+  "ps": "46 S",
+  "power": "Now drawing from 'AC Power'",
+  "loadavg": [
+   2.7529296875,
+   2.70263671875,
+   2.646484375
+  ]
+ },
+ "reference_env": {
+  "python": "3.12.13",
+  "napari": "0.7.0",
+  "napari-bbox": "0.1.1",
+  "numpy": "2.4.3",
+  "vispy": "0.16.1",
+  "bermuda": "0.1.7",
+  "PyQt6": "6.10.2",
+  "platform": "macOS arm64 (Apple M2 Pro)"
+ },
+ "env_differs_from_reference": {}
+}

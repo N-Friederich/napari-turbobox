@@ -1,0 +1,19 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="napari-TurboBox">
+  <!--
+    napari-TurboBox mark: a see-through 3D bounding box with three speed lines.
+    Grid: one 16-unit stroke; every stroke centre sits at 8 mod 16, so the
+    horizontal/vertical edges and dash ends land on whole pixels at 16/32/64 px.
+    Oblique (cabinet) view on purpose: a corner-on isometric see-through cube
+    collapses into a hexagon with an asterisk.
+    Colours: blue #2F7FE0 at 100 % and at 45 % (hidden edges), orange #EA580C.
+  -->
+  <g fill="none" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <!-- hidden edges first, so the solid edges cover the joins -->
+    <path d="M136 56V152H232M136 152L88 200" stroke="#2F7FE0" stroke-opacity="0.45"/>
+    <!-- nine visible edges: front face, top, right side -->
+    <path d="M88 104H184V200H88ZM88 104L136 56H232V152L184 200M184 104L232 56" stroke="#2F7FE0"/>
+    <!-- speed lines 16/32/16, centred on the front face (y=152), not the cube centre:
+         keeps the middle dash pixel-crisp at 16 px; mark spans x 16..240 (centred) -->
+    <path d="M40 120H56M24 152H56M40 184H56" stroke="#EA580C"/>
+  </g>
+</svg>

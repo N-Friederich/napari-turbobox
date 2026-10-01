@@ -1,0 +1,10 @@
+{
+ "file": "pip_freeze_benchmark_env.txt",
+ "original_sha256": "5d3c862b72f571f9cbf776927424101e49ededb506d73edc8092c3e7126d4e06",
+ "published_sha256": "11a8b0e31ccfbc4b3f0cf95175dc95177bb5dfef4bb6e44e39229c0cdb516005",
+ "redacted_lines": [
+  82,
+  86
+ ],
+ "note": "Line 82 named the local directory of the napari-bbox 0.1.1 sdist and line 86 an editable install of an unrelated, unpublished plugin from a private repository. Both were replaced by <redacted> after the run. All other lines are unchanged. The run sidecars record original_sha256, the digest of the file as it was during the run."
+}

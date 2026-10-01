@@ -1,0 +1,68 @@
+# Ruff configuration for napari-turbobox
+# https://docs.astral.sh/ruff/
+
+# Target Python 3.10+
+target-version = "py310"
+
+# Set max line length
+line-length = 100
+
+# Exclude non-source files and third-party-like scripts
+exclude = [
+    "paper_benchmarks",
+    "docs",
+]
+
+[lint]
+# Enable pycodestyle (E, W), pyflakes (F), isort (I), and numpy-specific rules (NPY)
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "N",    # pep8-naming
+    "UP",   # pyupgrade
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "NPY",  # numpy-specific rules
+    "RUF",  # ruff-specific rules
+]
+
+# Ignore specific rules that conflict with napari/scientific code style
+ignore = [
+    "E501",   # Line too long (handled by formatter)
+    "E741",   # Ambiguous variable name (common in math: l, O, I)
+    "N802",   # Function name should be lowercase (napari uses mixed case)
+    "N803",   # Argument name should be lowercase (napari conventions)
+    "N806",   # Variable in function should be lowercase (numpy arrays often uppercase)
+    "B905",   # zip without strict= (not available in Python 3.9)
+    "UP007",  # Use X | Y for type annotations (prefer Optional for clarity)
+]
+
+[lint.per-file-ignores]
+# Test files can have additional flexibility
+"tests/*.py" = [
+    "F401",   # Unused imports (fixtures)
+    "F811",   # Redefinition (pytest fixtures)
+]
+
+# Scripts can be less strict
+"test_*.py" = [
+    "F401",
+    "F811",
+]
+
+[lint.isort]
+# Group imports: stdlib, third-party, first-party
+known-first-party = ["napari_turbobox"]
+section-order = ["future", "standard-library", "third-party", "first-party", "local-folder"]
+
+[format]
+# Use double quotes
+quote-style = "double"
+
+# Indent with 4 spaces
+indent-style = "space"
+
+# Unix line endings
+line-ending = "lf"

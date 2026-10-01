@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" width="256" height="256" role="img" aria-label="napari-TurboBox">
+  <!--
+    Optional square variant for slots of 32 px and below (favicon, avatar).
+    Same see-through box as logo.svg, without the speed lines, so the box fills
+    14 of 16 px. Same 16-unit grid (stroke centres at 8 mod 16) and colours.
+  -->
+  <g fill="none" stroke="#2F7FE0" stroke-width="16" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M88 24V168H232M88 168L24 232" stroke-opacity="0.45"/>
+    <path d="M24 88H168V232H24ZM24 88L88 24H232V168L168 232M168 88L232 24"/>
+  </g>
+</svg>

@@ -1,0 +1,67 @@
+{
+ "case": "04_light_sheet_cellseg3d_mouse_brain",
+ "modality": "light-sheet fluorescence microscopy (mesoSPIM)",
+ "objects": "cell nuclei (instance labels)",
+ "dataset": "CellSeg3D, Achard et al. (eLife); Zenodo doi:10.5281/zenodo.11095111 (CC-BY-4.0)",
+ "volume": "DATASET_WITH_GT/c3image.tif",
+ "box_source": "ground-truth instance labels",
+ "check": {
+  "boxes": 631,
+  "valid": 631
+ },
+ "export": {
+  "boxes": 631,
+  "coco_images": 299,
+  "coco_annotations": 13839,
+  "yolo_files": 299
+ },
+ "drag": {
+  "box_index": 315,
+  "before": [
+   [
+    103.0,
+    35.0,
+    105.0
+   ],
+   [
+    126.0,
+    38.0,
+    109.0
+   ]
+  ],
+  "after": [
+   [
+    103.0,
+    36.0,
+    106.0
+   ],
+   [
+    126.0,
+    39.0,
+    110.0
+   ]
+  ],
+  "intended_shift_zyx": [
+   0.0,
+   1.0,
+   1.0
+  ],
+  "shift_zyx": [
+   0.0,
+   1.0,
+   1.0
+  ],
+  "valid": true,
+  "views_show_moved_box": {
+   "XZ (read-only)": true,
+   "YZ (read-only)": true,
+   "3D (read-only)": true
+  }
+ },
+ "image_shape": [
+  299,
+  105,
+  147
+ ],
+ "n_boxes": 631
+}
