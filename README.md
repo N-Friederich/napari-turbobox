@@ -502,7 +502,8 @@ views follow every move:
   `benchmark_results/figures`. In `drag_session_benchmark.py`, the module
   docstring, the path of the environment file in one comment and one warning
   message, one further comment and the default `--out` (now
-  `benchmark_results`) changed; in `memory_benchmark.py`, the module docstring
+  `benchmark_results`) changed, and the process-state record skips
+  `os.nice` and `os.getloadavg` on Windows, where they do not exist; in `memory_benchmark.py`, the module docstring
   and two comments. `sync_adapter.py`
   is unchanged. Five scripts of an earlier benchmark design that the final run
   did not use (`run_benchmarks.sh`, `resolution_benchmark.py`,

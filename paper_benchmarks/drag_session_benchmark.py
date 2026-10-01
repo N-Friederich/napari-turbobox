@@ -464,8 +464,11 @@ def _process_state():
             return None
 
     batt = _run("pmset", "-g", "batt")
-    return {"nice": os.nice(0), "ps": _run("ps", "-o", "pri=,stat=", "-p", str(os.getpid())),
-            "power": batt.splitlines()[0] if batt else None, "loadavg": list(os.getloadavg())}
+    # os.nice and os.getloadavg do not exist on Windows
+    return {"nice": os.nice(0) if hasattr(os, "nice") else None,
+            "ps": _run("ps", "-o", "pri=,stat=", "-p", str(os.getpid())),
+            "power": batt.splitlines()[0] if batt else None,
+            "loadavg": list(os.getloadavg()) if hasattr(os, "getloadavg") else None}
 
 
 # measured code: plugin source + harness. The explicit diff options keep user git config (color,

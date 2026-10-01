@@ -149,11 +149,20 @@ def _state(viewer, layer, raw_mesh=False):
     return state
 
 
+# The state keys that hold mesh geometry (vertex positions and the triangle sets built
+# from them). ``_zero_extent_nan`` skips them in the 3D view, see there.
+GEOMETRY_KEYS = ("mesh", "mesh_displayed", "vispy", "mesh.vertices", "mesh.vertices_centers",
+                 "mesh.vertices_offsets")
+
+
 def _assert_same(a, b, where, nan_ok=()):
     """Two ``_state`` dicts are equal. Float arrays must be finite, except the keys in
-    ``nan_ok``, where a NaN in both counts as equal (see ``_zero_extent_nan``)."""
+    ``nan_ok``, where a NaN in both counts as equal (see ``_zero_extent_nan``). With
+    ``"skip geometry"`` in ``nan_ok`` the keys in ``GEOMETRY_KEYS`` are not compared."""
     assert a.keys() == b.keys()
     for key in a:
+        if "skip geometry" in nan_ok and key in GEOMETRY_KEYS:
+            continue
         x, y = a[key], b[key]
         if key == "data":
             assert len(x) == len(y), f"{where}: {key} count {len(x)} != {len(y)}"
@@ -1147,13 +1156,18 @@ def _zero_extent_nan(backend):
     """Views whose napari mesh may hold NaN once a box has a zero extent (``nan_ok``).
 
     In 3D napari meshes the wireframe as a tube with vispy's ``_frenet_frames``: the
-    path of a flat box runs to a corner and straight back, and the zero tangent there
-    gives NaN offsets. In 2D every triangulation backend except the pure-Python one
-    gives NaN offsets to the edge of a flat rectangle. Boxes with extent >= 1 give
-    finite meshes, and all other tests require that.
+    path of a flat box runs to a corner and straight back, and the tangent there is
+    zero. The tube geometry is then undefined: NaN on macOS, but on Linux and Windows
+    vertex values that differ between an in-place edit and a rebuild. So the 3D view
+    compares no geometry here, only the shape bookkeeping and the colours. In 2D every
+    triangulation backend except the pure-Python one gives NaN offsets to the edge of
+    a flat rectangle. Boxes with extent >= 1 give finite meshes, and all other tests
+    require that.
     """
-    views = ("3d",) if backend == "pure_python" else VIEWS
-    return dict.fromkeys(views, ("mesh.vertices", "mesh.vertices_offsets"))
+    nan_ok = dict.fromkeys(VIEWS if backend != "pure_python" else (),
+                           ("mesh.vertices", "mesh.vertices_offsets"))
+    nan_ok["3d"] = ("skip geometry", *GEOMETRY_KEYS)
+    return nan_ok
 
 
 @pytest.mark.parametrize("backend", ["default", "pure_python"])

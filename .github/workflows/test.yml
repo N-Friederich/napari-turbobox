@@ -69,9 +69,14 @@ jobs:
           python-version: ${{ matrix.python-version }}
           cache: "pip"
 
-      # Qt needs system libraries (xcb platform plugin, EGL, ...) on Linux; no-op elsewhere.
-      - name: Install Qt system libraries (Linux)
-        uses: tlambert03/setup-qt-libs@v1.8
+      # The tests build real napari viewers and need OpenGL and a display: this installs
+      # the Qt system libraries and starts Xvfb on Linux, and installs the Mesa software
+      # OpenGL driver on Windows (the runners have no GPU). Nothing to do on macOS.
+      - name: Set up a headless display
+        uses: pyvista/setup-headless-display-action@v5
+        with:
+          qt: true
+          pyvista: false
 
       - name: Install
         run: |
@@ -79,12 +84,8 @@ jobs:
           pip install "${{ matrix.napari }}"
           pip install -e ".[testing]" pytest-cov
 
-      # The tests build real napari viewers, so they need a display: headless-gui runs
-      # the command under Xvfb on Linux and unchanged on Windows/macOS.
       - name: Run tests
-        uses: aganders3/headless-gui@v2
-        with:
-          run: pytest -v --cov=napari_turbobox --cov-report=xml --cov-report=term-missing
+        run: pytest -v --cov=napari_turbobox --cov-report=xml --cov-report=term-missing
 
       - name: Upload coverage to Codecov
         if: matrix.platform == 'ubuntu-latest' && matrix.python-version == '3.11'
