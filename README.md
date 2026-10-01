@@ -4,6 +4,15 @@
 
 # napari-TurboBox
 
+[![tests](https://github.com/N-Friederich/napari-turbobox/actions/workflows/test.yml/badge.svg)](https://github.com/N-Friederich/napari-turbobox/actions/workflows/test.yml)
+[![PyPI](https://img.shields.io/pypi/v/napari-turbobox.svg)](https://pypi.org/project/napari-turbobox/)
+[![Python versions](https://img.shields.io/pypi/pyversions/napari-turbobox.svg)](https://pypi.org/project/napari-turbobox/)
+[![License](https://img.shields.io/github/license/N-Friederich/napari-turbobox)](https://github.com/N-Friederich/napari-turbobox/blob/main/LICENSE)
+[![codecov](https://codecov.io/gh/N-Friederich/napari-turbobox/graph/badge.svg)](https://codecov.io/gh/N-Friederich/napari-turbobox)
+[![napari hub](https://img.shields.io/endpoint?url=https://api.napari-hub.org/shields/napari-turbobox)](https://napari-hub.org/plugins/napari-turbobox)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![pre-commit](https://img.shields.io/badge/pre--commit-enabled-brightgreen?logo=pre-commit)](https://github.com/pre-commit/pre-commit)
+
 napari-TurboBox is a napari plugin for annotating 2D and 3D images with
 axis-aligned bounding boxes (AABBs). All boxes of an annotation live in one
 shared store. One editable box layer and any number of read-only box layers in
