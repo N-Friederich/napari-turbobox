@@ -11,8 +11,8 @@ Changed
   is dropped) and supports Python 3.11 to 3.14.
 * Supports napari >= 0.6.6 and < 0.11 (tested with napari 0.6.6, 0.7.0, 0.9.2
   and 0.10.0).
-* Tested on macOS with PyQt6 and PySide6 on napari 0.10.0; PyQt5 is no longer
-  advertised.
+* Tested on macOS with PyQt6 and PySide6 on napari 0.10.0. PyQt5 is no longer
+  listed as a supported binding.
 * CI runs Python 3.11 to 3.14 across Linux, macOS and Windows, pinned Linux
   jobs for napari 0.6.6, 0.7.0, 0.9.2 and 0.10.0 (PyQt6 and PySide6), and a
   scheduled weekly canary job against napari pre-releases.
@@ -21,14 +21,24 @@ Fixed
 ~~~~~
 
 * Control-panel box import and the COCO/YOLO converters now reject non-finite
-  (``NaN`` or infinite) coordinates.
-* ``boxes_to_coco`` and ``boxes_to_yolo`` now validate ``image_shape``
-  dimensionality and positive sizes and clamp negative-only boxes cleanly when
-  ``image_shape`` is ``None``; the control panel ignores mismatched-dimension
-  RGB image layers when inferring an export shape.
+  (``NaN`` or infinite) coordinates. ``TurboBoxLayer.add_boxes``, the
+  ``bounding_boxes`` setter and the store are unchanged and still accept them.
+* ``boxes_to_coco`` and ``boxes_to_yolo`` now raise ``ValueError`` unless
+  ``image_shape`` has exactly one positive entry per box axis. v0.1.0 accepted
+  any length, took the last two entries as height and width and the first as
+  the number of slices. Code that passed a longer shape (for example 2D boxes
+  with a ``(Z, Y, X)`` shape, or a shape with a channel axis) must now pass
+  the axes of the boxes only, for example ``image.shape[-2:]``.
+* Without ``image_shape``, boxes that lie completely below 0 no longer give a
+  zero or negative image size (YOLO export raised ``ZeroDivisionError``).
+* Control-panel COCO/YOLO export of a layer that has no ``image_shape`` of its
+  own: the shape taken from the first Image layer no longer contains an
+  RGB(A) channel axis, and an image with more axes than the layer contributes
+  its trailing axes instead of its leading ones.
 * Native export in the control panel now writes JSON when the
   ``JSON (*.json)`` file filter is selected even if the filename omits the
-  ``.json`` extension.
+  ``.json`` extension. The ``.json`` extension is recognised in any case on
+  export and import.
 * Fixed and re-enabled the four previously skipped widget live-update and
   settings-routing tests.
 

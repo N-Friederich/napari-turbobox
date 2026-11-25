@@ -194,7 +194,8 @@ def boxes_to_coco(
         ``(N, 2, D)`` boxes with D = 2 or 3, min and max corner in napari
         ``(z, y, x)`` or ``(y, x)`` order.
     image_shape : sequence of int or None
-        Shape ``(Z, Y, X)`` or ``(Y, X)`` of the annotated image. Gives the
+        Shape ``(Z, Y, X)`` for 3D boxes or ``(Y, X)`` for 2D boxes, without
+        channel axis: one positive entry per box axis. Gives the
         size of the ``images`` entries, the clamping bounds and, in 3D, the
         slice range. If None, H and W are derived from the box extents (with
         a warning).
@@ -218,8 +219,10 @@ def boxes_to_coco(
     Raises
     ------
     ValueError
-        For an unknown ``mode``, boxes with D other than 2 or 3, or
-        ``category_ids`` whose length differs from N.
+        For an unknown ``mode``, boxes with D other than 2 or 3, boxes with
+        ``NaN`` or infinite coordinates, an ``image_shape`` that does not
+        have exactly D positive entries, or ``category_ids`` whose length
+        differs from N.
     """
     records, _h, _w, ndim = _records(boxes, image_shape, mode, category_ids)
 
