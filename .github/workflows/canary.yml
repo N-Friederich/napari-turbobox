@@ -1,0 +1,65 @@
+name: canary
+
+# Early warning against upcoming napari releases: tests the latest napari
+# pre-release (pre-release of napari only, not its dependencies) with the plugin
+# installed using --no-deps so the package's upper version cap does not hide the
+# release under test. Gates nothing and publishes nothing.
+on:
+  schedule:
+    - cron: "0 6 * * 1"
+  workflow_dispatch:
+
+concurrency:
+  group: canary-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  canary:
+    name: ubuntu-latest py3.14 napari pre-release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up Python 3.14
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - name: Set up a headless display
+        uses: pyvista/setup-headless-display-action@v5
+        with:
+          qt: true
+          pyvista: false
+
+      - name: Resolve newest napari release or pre-release
+        id: napari
+        run: |
+          python -m pip install --upgrade pip packaging
+          NAPARI_VERSION=$(python - <<'PY'
+          import json
+          import urllib.request
+          from packaging.version import Version
+
+          with urllib.request.urlopen("https://pypi.org/pypi/napari/json", timeout=30) as resp:
+              data = json.load(resp)
+          versions = [
+              (Version(ver), ver)
+              for ver, files in data["releases"].items()
+              if files and not all(f.get("yanked") for f in files)
+          ]
+          versions.sort()
+          print(versions[-1][1])
+          PY
+          )
+          echo "version=${NAPARI_VERSION}" >> "$GITHUB_OUTPUT"
+          echo "Resolved newest napari on PyPI: ${NAPARI_VERSION}"
+
+      - name: Install napari pre-release and plugin (--no-deps)
+        run: |
+          # Pin the exact napari version without --pre so dependencies stay on stable releases.
+          pip install "napari[all]==${{ steps.napari.outputs.version }}"
+          pip install "pytest>=7.0.0" "pytest-qt>=4.2.0" "hypothesis>=6.0.0"
+          pip install --no-deps -e .
+
+      - name: Run full test suite
+        run: pytest -v

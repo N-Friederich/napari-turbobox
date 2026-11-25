@@ -26,7 +26,7 @@ repos:
         # excludes paper_benchmarks/ and docs/, and CI lints the benchmark core
         # and the demo recorder by naming them.
         entry: >-
-          ruff check src tests examples tutorials/tutorial_utils.py docs/make_demo.py
+          ruff check src tests examples scripts tutorials/tutorial_utils.py docs/make_demo.py
           paper_benchmarks/drag_session_benchmark.py paper_benchmarks/sync_adapter.py
           paper_benchmarks/make_final_figures.py
         language: python

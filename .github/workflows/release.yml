@@ -28,16 +28,50 @@ jobs:
       - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
-      - name: Tag matches the package version
+      - name: Tag matches package, citation, docs and README pins
         run: |
-          version=$(python -c "import configparser; c = configparser.ConfigParser(); c.read('setup.cfg'); print(c['metadata']['version'])")
-          if [ "v${version}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match setup.cfg version ${version}"; exit 1
-          fi
-          cff=$(sed -n 's/^version: *//p' CITATION.cff)
-          if [ "v${cff}" != "${GITHUB_REF_NAME}" ]; then
-            echo "Tag ${GITHUB_REF_NAME} does not match CITATION.cff version ${cff}"; exit 1
-          fi
+          python - <<'PY'
+          import configparser
+          import os
+          import re
+          from pathlib import Path
+
+          tag = os.environ["GITHUB_REF_NAME"]
+          expected = tag.removeprefix("v")
+
+          cfg = configparser.ConfigParser()
+          cfg.read("setup.cfg")
+          setup_ver = cfg["metadata"]["version"].strip()
+          if setup_ver != expected:
+              raise SystemExit(f"Tag {tag} does not match setup.cfg version {setup_ver}")
+
+          cff = Path("CITATION.cff").read_text(encoding="utf-8")
+          m_cff = re.search(r"^version:\s*(\S+)\s*$", cff, re.M)
+          if not m_cff or m_cff.group(1) != expected:
+              raise SystemExit(
+                  f"Tag {tag} does not match CITATION.cff version {m_cff.group(1) if m_cff else None}"
+              )
+
+          conf = Path("docs/conf.py").read_text(encoding="utf-8")
+          m_conf = re.search(r"^release\s*=\s*['\"]([^'\"]+)['\"]\s*$", conf, re.M)
+          if not m_conf or m_conf.group(1) != expected:
+              raise SystemExit(
+                  f"Tag {tag} does not match docs/conf.py release {m_conf.group(1) if m_conf else None}"
+              )
+
+          readme = Path("README.md").read_text(encoding="utf-8")
+          pins = re.findall(
+              r"(?:https://raw\.githubusercontent\.com/N-Friederich/napari-turbobox"
+              r"|https://github\.com/N-Friederich/napari-turbobox/(?:blob|tree))/(v\d+\.\d+\.\d+)/",
+              readme,
+          )
+          if len(pins) < 15:
+              raise SystemExit(f"Expected at least 15 tag-pinned links in README.md, found {len(pins)}")
+          bad = sorted({p for p in pins if p != tag})
+          if bad:
+              raise SystemExit(f"README.md tag-pinned links do not match {tag}: {bad}")
+          print(f"Tag {tag} matches setup.cfg, CITATION.cff, docs/conf.py and {len(pins)} README links.")
+          PY
       - name: No placeholders left in the released files
         run: |
           if grep -n -e '{{TBD' -e 'XXXXXXX' README.md CITATION.cff docs/*.rst; then
@@ -53,7 +87,7 @@ jobs:
           twine check dist/*
       - name: Install the wheel and validate the plugin manifest
         run: |
-          pip install "napari>=0.6.6,<0.10" npe2 dist/*.whl
+          pip install "napari>=0.6.6,<0.11" npe2 dist/*.whl
           npe2 validate napari-turbobox
       - uses: actions/upload-artifact@v6
         with:

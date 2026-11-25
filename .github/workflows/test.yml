@@ -33,7 +33,7 @@ jobs:
         # Only the benchmark core is linted, not memory_benchmark.py or the run
         # scripts in paper_benchmarks/final_run/.
         run: |
-          ruff check src tests examples tutorials/tutorial_utils.py docs/make_demo.py \
+          ruff check src tests examples scripts tutorials/tutorial_utils.py docs/make_demo.py \
             paper_benchmarks/drag_session_benchmark.py paper_benchmarks/sync_adapter.py \
             paper_benchmarks/make_final_figures.py
       - name: Validate the napari plugin manifest
@@ -46,10 +46,10 @@ jobs:
       fail-fast: false
       matrix:
         platform: [ubuntu-latest, windows-latest, macos-latest]
-        python-version: ["3.10", "3.11", "3.12"]
-        napari: ["napari[all]>=0.6.6,<0.10"]
+        python-version: ["3.11", "3.12", "3.13", "3.14"]
+        napari: ["napari[all]>=0.6.6,<0.11"]
         include:
-          # the napari versions the plugin is tested against locally
+          # pinned napari versions and Qt bindings on Linux
           - platform: ubuntu-latest
             python-version: "3.12"
             napari: "napari[all]==0.6.6"
@@ -58,7 +58,13 @@ jobs:
             napari: "napari[all]==0.7.0"
           - platform: ubuntu-latest
             python-version: "3.12"
-            napari: "napari[all]==0.9.1"
+            napari: "napari[all]==0.9.2"
+          - platform: ubuntu-latest
+            python-version: "3.13"
+            napari: "napari[all]==0.10.0"
+          - platform: ubuntu-latest
+            python-version: "3.13"
+            napari: "napari[pyside6]==0.10.0"
 
     steps:
       - uses: actions/checkout@v5
