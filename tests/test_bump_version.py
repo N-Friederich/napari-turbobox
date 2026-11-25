@@ -29,20 +29,42 @@ def _load_module():
     return module
 
 
-def _copy_release_tree(tmp_path: Path) -> Path:
+def _copy_release_tree(tmp_path: Path, mod) -> tuple[Path, str, str]:
+    """Copy the release files and return ``(root, current_version, next_version)``.
+
+    The checkout is either between releases (the changelog has the
+    "(unreleased)" section of the next version, which is then the target) or at
+    a release commit (it has none). In the second case a section for the next
+    patch version is added to the copy, so the tests do not depend on the
+    release state of the checkout.
+    """
     for rel in RELEASE_FILES:
         dst = tmp_path / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO_ROOT / rel, dst)
-    return tmp_path
+    current = mod.read_current_version(tmp_path)
+    changelog = tmp_path / "docs" / "changelog.rst"
+    text = changelog.read_text(encoding="utf-8")
+    unreleased = re.search(r"^v(\d+\.\d+\.\d+) \(unreleased\)$", text, flags=re.M)
+    if unreleased:
+        target = unreleased.group(1)
+    else:
+        major, minor, patch = (int(part) for part in current.split("."))
+        target = f"{major}.{minor}.{patch + 1}"
+        header = f"v{target} (unreleased)"
+        title = "Changelog\n=========\n\n"
+        assert text.startswith(title)
+        text = title + f"{header}\n{'-' * len(header)}\n\n" + text[len(title):]
+        changelog.write_text(text, encoding="utf-8")
+    return tmp_path, current, target
 
 
 def test_bump_version_dry_run_writes_nothing(tmp_path, capsys):
     mod = _load_module()
-    root = _copy_release_tree(tmp_path)
+    root, _current, target = _copy_release_tree(tmp_path, mod)
     before = {rel: (root / rel).read_text(encoding="utf-8") for rel in RELEASE_FILES}
 
-    rc = mod.main(["0.1.1", "--date", "2026-11-25", "--dry-run", "--root", str(root)])
+    rc = mod.main([target, "--date", "2026-11-25", "--dry-run", "--root", str(root)])
     assert rc == 0
     out = capsys.readouterr().out
     assert "would write setup.cfg" in out
@@ -58,25 +80,26 @@ def test_bump_version_dry_run_writes_nothing(tmp_path, capsys):
 
 def test_bump_version_updates_all_five_files_consistently(tmp_path):
     mod = _load_module()
-    root = _copy_release_tree(tmp_path)
+    root, _current, target = _copy_release_tree(tmp_path, mod)
 
-    rc = mod.main(["0.1.1", "--date", "2026-11-25", "--root", str(root)])
+    rc = mod.main([target, "--date", "2026-11-25", "--root", str(root)])
     assert rc == 0
 
     cfg = configparser.ConfigParser()
     cfg.read(root / "setup.cfg")
-    assert cfg["metadata"]["version"] == "0.1.1"
+    assert cfg["metadata"]["version"] == target
 
     cff = (root / "CITATION.cff").read_text(encoding="utf-8")
-    assert "version: 0.1.1\n" in cff
+    assert f"version: {target}\n" in cff
     assert "date-released: 2026-11-25\n" in cff
 
     conf = (root / "docs/conf.py").read_text(encoding="utf-8")
-    assert "release = '0.1.1'\n\n" in conf
+    assert f"release = '{target}'\n\n" in conf
 
     changelog = (root / "docs/changelog.rst").read_text(encoding="utf-8")
+    header = f"v{target} (2026-11-25)"
     assert "(unreleased)" not in changelog
-    assert "v0.1.1 (2026-11-25)\n-------------------\n" in changelog
+    assert f"{header}\n{'-' * len(header)}\n" in changelog
 
     readme = (root / "README.md").read_text(encoding="utf-8")
     pins = re.findall(
@@ -85,13 +108,15 @@ def test_bump_version_updates_all_five_files_consistently(tmp_path):
         readme,
     )
     assert len(pins) == 15
-    assert set(pins) == {"v0.1.1"}
+    assert set(pins) == {f"v{target}"}
 
 
-@pytest.mark.parametrize("bad_version", ["0.2.0", "0.1.0", "v0.1.1", "0.1"])
+@pytest.mark.parametrize("bad_version", ["0.2.0", "current", "v0.1.1", "0.1"])
 def test_bump_version_rejects_invalid_or_reserved_versions(tmp_path, bad_version):
     mod = _load_module()
-    root = _copy_release_tree(tmp_path)
+    root, current, _target = _copy_release_tree(tmp_path, mod)
+    if bad_version == "current":
+        bad_version = current
     before = {rel: (root / rel).read_text(encoding="utf-8") for rel in RELEASE_FILES}
 
     rc = mod.main([bad_version, "--date", "2026-11-25", "--root", str(root)])
