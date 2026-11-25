@@ -127,33 +127,42 @@ def test_import_rejects_non_finite_boxes(widget, tmp_path, monkeypatch, image_sh
     assert "Import failed" in widget.status_label.text()
 
 
-def test_export_image_shape_ignores_mismatched_rgb_image(make_napari_viewer):
+def _panel_shape(make_napari_viewer, images, layer_ndim, select=None):
     viewer = make_napari_viewer()
-    viewer.add_image(np.zeros((100, 120, 3), dtype=np.uint8), rgb=True, name="rgb2d")
-    lyr = TurboBoxLayer(ndim=3, image_shape=None)
+    added = [viewer.add_image(np.zeros(shape, dtype=np.uint8), rgb=rgb) for shape, rgb in images]
+    lyr = TurboBoxLayer(ndim=layer_ndim, image_shape=None)
     viewer.add_layer(lyr)
+    if select is not None:
+        viewer.layers.selection = {added[select]}
     w = BoundingBoxControlWidget(viewer)
     try:
-        # Must not treat the 2D RGB channel axis (3) as 3D width.
-        assert w._export_image_shape(lyr) is None
+        return w._export_image_shape(lyr)
     finally:
         w.close()
 
 
-def test_export_image_shape_matches_selected_or_topmost_image(make_napari_viewer):
-    viewer = make_napari_viewer()
-    bottom = viewer.add_image(np.zeros((10, 50, 60), dtype=np.uint8), name="bottom")
-    viewer.add_image(np.zeros((20, 100, 120, 3), dtype=np.uint8), rgb=True, name="top_rgb3d")
-    lyr = TurboBoxLayer(ndim=3, image_shape=None)
-    viewer.add_layer(lyr)
-    w = BoundingBoxControlWidget(viewer)
-    try:
-        viewer.layers.selection = {lyr}
-        assert w._export_image_shape(lyr) == (20, 100, 120)
-        viewer.layers.selection = {bottom}
-        assert w._export_image_shape(lyr) == (10, 50, 60)
-    finally:
-        w.close()
+@pytest.mark.parametrize(
+    ("images", "layer_ndim", "expected"),
+    [
+        ([((20, 100, 120), False)], 3, (20, 100, 120)),  # as in v0.1.0
+        ([((100, 120), False)], 2, (100, 120)),  # as in v0.1.0
+        ([((100, 120), False)], 3, (100, 100, 120)),  # v0.1.0 gave (100, 120): same H, W and slice clamp
+        ([((100, 120, 3), True)], 2, (100, 120)),  # as in v0.1.0
+        ([((20, 100, 120, 3), True)], 3, (20, 100, 120)),  # as in v0.1.0
+        ([((100, 120, 3), True)], 3, (100, 100, 120)),  # v0.1.0 took the channel axis (3) as W
+        ([((20, 100, 120), False)], 2, (100, 120)),  # v0.1.0 took the leading axes (20, 100)
+        ([((2, 20, 100, 120), False)], 3, (20, 100, 120)),  # v0.1.0 took the leading axes (2, 20, 100)
+    ],
+)
+def test_export_image_shape_fallback(make_napari_viewer, images, layer_ndim, expected):
+    assert _panel_shape(make_napari_viewer, images, layer_ndim) == expected
+
+
+@pytest.mark.parametrize("select", [None, 0, 1])
+def test_export_image_shape_keeps_first_image_as_in_v010(make_napari_viewer, select):
+    # Exported numbers must not depend on the selection or change against v0.1.0.
+    images = [((10, 50, 60), False), ((20, 100, 120), False)]
+    assert _panel_shape(make_napari_viewer, images, 3, select) == (10, 50, 60)
 
 
 def test_export_native_json_filter_without_extension(widget, layer, tmp_path, monkeypatch):
@@ -170,3 +179,46 @@ def test_export_native_json_filter_without_extension(widget, layer, tmp_path, mo
     assert out_json.exists()
     assert not (tmp_path / "boxes_no_ext.npy").exists()
     assert np.array(json.loads(out_json.read_text())).shape == (1, 2, 3)
+
+
+def test_native_export_names_in_status_exist_and_reimport(widget, layer, tmp_path, monkeypatch):
+    for name, filt in [("A.JSON", "JSON (*.json)"), ("B.NPY", "NumPy Array (*.npy)"), ("c", "JSON (*.json)")]:
+
+        class _D:
+            @staticmethod
+            def getSaveFileName(*a, _n=name, _f=filt, **k):
+                return (str(tmp_path / _n), _f)
+
+        monkeypatch.setattr("napari_turbobox.widget.QFileDialog", _D)
+        widget._export_native(layer.bounding_boxes)
+        written = widget.status_label.text().split(" to ", 1)[1]
+        assert (tmp_path / written).exists(), written
+
+        target = TurboBoxLayer(ndim=3, image_shape=(50, 200, 200))
+        monkeypatch.setattr(widget, "_current_layer", lambda t=target: t)
+
+        class _O:
+            @staticmethod
+            def getOpenFileName(*a, _w=written, **k):
+                return (_w, "")
+
+        monkeypatch.setattr("napari_turbobox.widget.QFileDialog", _O)
+        widget._import_boxes()
+        assert len(target.bounding_boxes) == 1, widget.status_label.text()
+
+
+def test_import_rejects_values_beyond_float32(widget, tmp_path, monkeypatch):
+    lyr = TurboBoxLayer(ndim=3, image_shape=None)
+    monkeypatch.setattr(widget, "_current_layer", lambda: lyr)
+    bad_file = tmp_path / "big.json"
+    bad_file.write_text("[[[1, 1, 1], [3, 3, 1e39]]]")
+
+    class _Open:
+        @staticmethod
+        def getOpenFileName(*a, **k):
+            return (str(bad_file), "")
+
+    monkeypatch.setattr("napari_turbobox.widget.QFileDialog", _Open)
+    widget._import_boxes()
+    assert len(lyr.bounding_boxes) == 0
+    assert "Import failed" in widget.status_label.text()

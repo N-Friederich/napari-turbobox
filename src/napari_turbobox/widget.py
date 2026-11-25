@@ -583,33 +583,24 @@ class BoundingBoxControlWidget(QWidget):
     def _export_image_shape(self, layer) -> tuple[int, ...] | None:
         """Return the image shape that bounds the COCO/YOLO output.
 
-        This is the layer's ``image_shape``, else the spatial shape of the
-        selected (or topmost) Image layer with matching dimensionality, else
-        None. With None the converters derive H and W from the boxes and warn.
+        This is the layer's ``image_shape``, else the shape of the first Image
+        layer in the viewer without its RGB(A) axis, else None. The image's
+        trailing ``layer.ndim`` axes are used, and missing leading axes are
+        filled with the first value, as ``TurboBoxLayer`` does for its own
+        ``image_shape``. With None the converters derive H and W from the
+        boxes and warn.
         """
         shape = getattr(layer, "_image_shape", None)
         if shape is not None:
             return tuple(int(s) for s in shape)
         if self.viewer is not None:
-            image = next(
-                (
-                    lyr
-                    for lyr in self.viewer.layers.selection
-                    if isinstance(lyr, Image) and lyr.ndim == layer.ndim
-                ),
-                None,
-            )
-            if image is None:
-                image = next(
-                    (
-                        lyr
-                        for lyr in reversed(self.viewer.layers)
-                        if isinstance(lyr, Image) and lyr.ndim == layer.ndim
-                    ),
-                    None,
-                )
-            if image is not None:
-                return tuple(int(s) for s in image.data.shape[: image.ndim])
+            for lyr in self.viewer.layers:
+                if isinstance(lyr, Image):
+                    # lyr.ndim counts no RGB(A) axis, so the channel axis is never taken as W
+                    spatial = tuple(int(s) for s in lyr.data.shape[: lyr.ndim])
+                    if len(spatial) >= layer.ndim:
+                        return spatial[-layer.ndim :]
+                    return (spatial[0],) * (layer.ndim - len(spatial)) + spatial
         return None
 
     def _export_native(self, boxes: np.ndarray) -> None:
@@ -630,7 +621,7 @@ class BoundingBoxControlWidget(QWidget):
             with open(filename, "w") as f:
                 json.dump(boxes.tolist(), f, indent=2)
         else:
-            if not filename.lower().endswith(".npy"):
+            if not filename.endswith(".npy"):  # np.save appends ".npy" by this rule
                 filename += ".npy"
             np.save(filename, boxes)
         self.status_label.setText(f"✅ Exported {boxes.shape[0]} bboxes to {filename}")
@@ -690,7 +681,7 @@ class BoundingBoxControlWidget(QWidget):
         if not filename:
             return
         try:
-            if filename.endswith(".json"):
+            if filename.lower().endswith(".json"):
                 import json
 
                 with open(filename) as f:
@@ -705,7 +696,10 @@ class BoundingBoxControlWidget(QWidget):
                     f"Dimension mismatch: boxes have {boxes.shape[2]}D but layer is {layer.ndim}D"
                 )
             boxes_float = np.asarray(boxes, dtype=float)
-            if boxes_float.size > 0 and not np.all(np.isfinite(boxes_float)):
+            # the store holds float32: a finite float64 above its range would become inf there
+            with np.errstate(over="ignore"):
+                finite = np.isfinite(boxes_float.astype(np.float32))
+            if boxes_float.size > 0 and not np.all(finite):
                 raise ValueError("Imported boxes must contain only finite coordinates (no NaN or inf)")
             layer.add_boxes(boxes_float)
             self.status_label.setText(f"✅ Imported {boxes.shape[0]} bboxes from {filename}")
