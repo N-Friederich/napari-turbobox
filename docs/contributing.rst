@@ -74,7 +74,8 @@ mouse and key events, and stops if any step does not produce the expected
 result in the store and the views. It needs a display, ``ffmpeg`` and napari
 with a Qt binding, and it is not part of the test suite. It uses some of
 napari's private attributes and has been run with napari 0.7.0 and PyQt6 on
-macOS. After a change to the plugin, record the files again and
+macOS. It does not run on napari 0.10 yet, because it calls a private canvas
+method that napari 0.10 removed. After a change to the plugin, record the files again and
 commit them if they changed:
 
 .. code-block:: bash
