@@ -59,6 +59,8 @@ def _as_minmax(boxes: np.ndarray) -> np.ndarray:
         return arr.reshape(0, 2, d)
     if arr.ndim != 3 or arr.shape[1] != 2:
         raise ValueError(f"boxes must have shape (N, 2, D); got {arr.shape}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("boxes must contain only finite coordinates (no NaN or inf)")
     mins = np.minimum(arr[:, 0], arr[:, 1])
     maxs = np.maximum(arr[:, 0], arr[:, 1])
     return np.stack([mins, maxs], axis=1)

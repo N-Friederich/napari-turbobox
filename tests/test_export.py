@@ -151,3 +151,12 @@ def test_category_ids_mapping():
     yolo = boxes_to_yolo(boxes, (10, 100, 200), mode="max_projection", category_ids=[0, 2])
     classes = sorted(int(line.split()[0]) for line in yolo["image.txt"].strip().splitlines())
     assert classes == [0, 2]  # YOLO uses class id verbatim (0-indexed)
+
+
+@pytest.mark.parametrize("bad_val", [np.nan, np.inf, -np.inf])
+def test_export_rejects_non_finite_boxes(bad_val):
+    boxes = np.array([[[bad_val, 10.0, 20.0], [5.0, 30.0, 80.0]]], dtype=float)
+    with pytest.raises(ValueError, match="finite"):
+        boxes_to_coco(boxes, (10, 100, 200))
+    with pytest.raises(ValueError, match="finite"):
+        boxes_to_yolo(boxes, (10, 100, 200))

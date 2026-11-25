@@ -683,7 +683,10 @@ class BoundingBoxControlWidget(QWidget):
                 raise ValueError(
                     f"Dimension mismatch: boxes have {boxes.shape[2]}D but layer is {layer.ndim}D"
                 )
-            layer.add_boxes(boxes)
+            boxes_float = np.asarray(boxes, dtype=float)
+            if boxes_float.size > 0 and not np.all(np.isfinite(boxes_float)):
+                raise ValueError("Imported boxes must contain only finite coordinates (no NaN or inf)")
+            layer.add_boxes(boxes_float)
             self.status_label.setText(f"✅ Imported {boxes.shape[0]} bboxes from {filename}")
             logger.info("Imported%sbboxes", boxes.shape[0])
             self._update_status()

@@ -106,3 +106,22 @@ def test_export_dispatch_cancelled_is_noop(widget, layer, monkeypatch):
 
     monkeypatch.setattr("napari_turbobox.widget.QInputDialog", _Input)
     widget._export_boxes()  # must not raise
+
+
+@pytest.mark.parametrize("image_shape", [(50, 200, 200), None])
+@pytest.mark.parametrize("bad_val", [np.nan, np.inf, -np.inf])
+def test_import_rejects_non_finite_boxes(widget, tmp_path, monkeypatch, image_shape, bad_val):
+    lyr = TurboBoxLayer(ndim=3, image_shape=image_shape)
+    monkeypatch.setattr(widget, "_current_layer", lambda: lyr)
+    bad_file = tmp_path / "bad.npy"
+    np.save(bad_file, np.array([[[bad_val, 10.0, 10.0], [5.0, 30.0, 30.0]]], dtype=np.float32))
+
+    class _Open:
+        @staticmethod
+        def getOpenFileName(*a, **k):
+            return (str(bad_file), "NumPy Array (*.npy)")
+
+    monkeypatch.setattr("napari_turbobox.widget.QFileDialog", _Open)
+    widget._import_boxes()
+    assert len(lyr.bounding_boxes) == 0
+    assert "Import failed" in widget.status_label.text()
