@@ -1,6 +1,37 @@
 Changelog
 =========
 
+v0.1.1 (unreleased)
+-------------------
+
+Changed
+~~~~~~~
+
+* Requires Python >= 3.11 (Python 3.10 reached end of life in October 2026 and
+  is dropped) and supports Python 3.11 to 3.14.
+* Supports napari >= 0.6.6 and < 0.11 (tested with napari 0.6.6, 0.7.0, 0.9.2
+  and 0.10.0).
+* Tested on macOS with PyQt6 and PySide6 on napari 0.10.0; PyQt5 is no longer
+  advertised.
+* CI runs Python 3.11 to 3.14 across Linux, macOS and Windows, pinned Linux
+  jobs for napari 0.6.6, 0.7.0, 0.9.2 and 0.10.0 (PyQt6 and PySide6), and a
+  scheduled weekly canary job against napari pre-releases.
+
+Fixed
+~~~~~
+
+* Control-panel box import and the COCO/YOLO converters now reject non-finite
+  (``NaN`` or infinite) coordinates.
+* ``boxes_to_coco`` and ``boxes_to_yolo`` now validate ``image_shape``
+  dimensionality and positive sizes and clamp negative-only boxes cleanly when
+  ``image_shape`` is ``None``; the control panel ignores mismatched-dimension
+  RGB image layers when inferring an export shape.
+* Native export in the control panel now writes JSON when the
+  ``JSON (*.json)`` file filter is selected even if the filename omits the
+  ``.json`` extension.
+* Fixed and re-enabled the four previously skipped widget live-update and
+  settings-routing tests.
+
 v0.1.0 (2026-10-01)
 -------------------
 

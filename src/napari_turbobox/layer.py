@@ -1310,7 +1310,7 @@ class TurboBoxLayer(Shapes):
     def _on_parent_change(self, event) -> None:
         """Rebuild the shapes from the store, unless a sync is running.
 
-        napari does not call this method (checked for 0.6.6, 0.7.0 and 0.9.1);
+        napari does not call this method (checked for 0.6.6, 0.7.0, 0.9.2 and 0.10.0);
         it only runs when called directly.
         """
         if not self._sync_guard and self._bbox_store.data.size > 0:

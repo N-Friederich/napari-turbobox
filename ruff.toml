@@ -1,8 +1,8 @@
 # Ruff configuration for napari-turbobox
 # https://docs.astral.sh/ruff/
 
-# Target Python 3.10+
-target-version = "py310"
+# Target Python 3.11+
+target-version = "py311"
 
 # Set max line length
 line-length = 100

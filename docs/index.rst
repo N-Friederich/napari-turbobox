@@ -55,10 +55,10 @@ Features
 Requirements
 ------------
 
-* Python >= 3.10 (napari 0.8 and later require Python >= 3.11).
-* napari >= 0.6.6 and < 0.10, NumPy, qtpy.
-* A Qt binding: PyQt5, PyQt6 or PySide6 (accessed through qtpy).
-* Tested with napari 0.6.6, 0.7.0 and 0.9.1.
+* Python >= 3.11.
+* napari >= 0.6.6 and < 0.11, NumPy, qtpy.
+* A Qt binding: PyQt6 or PySide6 (accessed through qtpy).
+* Tested with napari 0.6.6, 0.7.0, 0.9.2 and 0.10.0.
 
 napari does not install a Qt binding by itself. Its ``all`` extra installs one,
 together with napari's optional compiled triangulation backend (``bermuda``),

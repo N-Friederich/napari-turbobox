@@ -37,7 +37,7 @@ COCO/YOLO width and height are ``max - min``: an object covering columns
 10..15 gets width 5. Add 1 if your detector expects voxel counts.
 
 The export runs without a viewer window, but importing ``napari_turbobox``
-still imports napari and needs a Qt binding (PyQt5, PyQt6 or PySide6).
+still imports napari and needs a Qt binding (PyQt6 or PySide6).
 ``--gui`` opens the panel through the plugin manifest, so napari-turbobox must
 be installed (``pip install -e .``), not only on ``PYTHONPATH``.
 """

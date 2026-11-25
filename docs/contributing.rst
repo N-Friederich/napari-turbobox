@@ -7,12 +7,12 @@ https://github.com/N-Friederich/napari-turbobox.
 Development environment
 -----------------------
 
-Use Python 3.10 or newer and install napari with a Qt binding first, then the
+Use Python 3.11 or newer and install napari with a Qt binding first, then the
 package in editable mode:
 
 .. code-block:: bash
 
-   pip install "napari[all]>=0.6.6,<0.10"
+   pip install "napari[all]>=0.6.6,<0.11"
    pip install -e ".[dev]"
 
 The ``dev`` extra installs pytest, pytest-qt, hypothesis, pytest-cov, ruff,
@@ -36,15 +36,17 @@ The tests create real napari viewers and therefore need a display. On a
 headless Linux machine run them under a virtual X server (for example
 ``xvfb-run pytest``). The GitHub Actions workflow
 (``.github/workflows/test.yml``) runs ``ruff check`` on ``src``, ``tests``,
-``examples``, ``tutorials/tutorial_utils.py``, the demo recorder
+``examples``, ``scripts``, ``tutorials/tutorial_utils.py``, the demo recorder
 ``docs/make_demo.py`` and the benchmark core in
 ``paper_benchmarks/``, validates the
 plugin manifest with ``npe2 validate``, and runs the tests on Linux (under
-Xvfb), macOS and Windows with Python 3.10, 3.11 and 3.12, plus napari 0.6.6,
-0.7.0 and 0.9.1 on Linux. For a version tag, ``.github/workflows/release.yml``
-runs this workflow as well and publishes to PyPI only if all its jobs pass.
+Xvfb), macOS and Windows with Python 3.11, 3.12, 3.13 and 3.14, plus napari
+0.6.6, 0.7.0, 0.9.2 and 0.10.0 (PyQt6 and PySide6) on Linux. A scheduled
+weekly canary workflow (``.github/workflows/canary.yml``) also runs the suite
+against napari pre-releases. For a version tag, ``.github/workflows/release.yml``
+runs ``test.yml`` as well and publishes to PyPI only if all its jobs pass.
 
-The test suite has been run locally with napari 0.6.6, 0.7.0 and 0.9.1.
+The test suite has been run locally with napari 0.6.6, 0.7.0, 0.9.2 and 0.10.0.
 
 Linting and pre-commit
 ----------------------
