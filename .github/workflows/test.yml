@@ -64,7 +64,7 @@ jobs:
             napari: "napari[all]==0.10.0"
           - platform: ubuntu-latest
             python-version: "3.13"
-            napari: "napari[pyside6]==0.10.0"
+            napari: "napari[pyside6,optional]==0.10.0"
 
     steps:
       - uses: actions/checkout@v5

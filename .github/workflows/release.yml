@@ -70,7 +70,21 @@ jobs:
           bad = sorted({p for p in pins if p != tag})
           if bad:
               raise SystemExit(f"README.md tag-pinned links do not match {tag}: {bad}")
-          print(f"Tag {tag} matches setup.cfg, CITATION.cff, docs/conf.py and {len(pins)} README links.")
+
+          changelog = Path("docs/changelog.rst").read_text(encoding="utf-8")
+          m_log = re.search(r"^v(\d+\.\d+\.\d+) \((\d{4}-\d{2}-\d{2})\)\s*$", changelog, re.M)
+          if not m_log or m_log.group(1) != expected:
+              raise SystemExit(
+                  f"Tag {tag} does not match the newest dated section of docs/changelog.rst: "
+                  f"{m_log.group(0) if m_log else None}"
+              )
+          m_date = re.search(r"^date-released:\s*(\S+)\s*$", cff, re.M)
+          if not m_date or m_date.group(1) != m_log.group(2):
+              raise SystemExit(
+                  f"CITATION.cff date-released {m_date.group(1) if m_date else None} "
+                  f"does not match the changelog date {m_log.group(2)}"
+              )
+          print(f"Tag {tag} matches setup.cfg, CITATION.cff, docs/conf.py, the changelog and {len(pins)} README links.")
           PY
       - name: No placeholders left in the released files
         run: |
