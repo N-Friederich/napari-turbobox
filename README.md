@@ -385,9 +385,9 @@ The benchmark numbers above were measured in the final run of 25 September 2026
 on napari 0.7.0, on the code state archived in `paper_results/`. Version 0.1.0
 differs from that state in four functions, as documented in `docs/benchmark.md`
 and `paper_results/environment/README.md`. Version 0.1.1 also changes six
-functions of the import and export code (`export.py`, `widget.py`). The
-benchmark executes none of the changed code. The numbers were not re-measured
-for 0.1.1.
+functions of the import and export code (`export.py`, `widget.py`) and how
+`layer.py` handles a click in *Add Rectangle* mode. The benchmark executes
+none of the changed code. The numbers were not re-measured for 0.1.1.
 
 ## Good to know
 

@@ -191,8 +191,10 @@ Only the editable layer reacts to mouse drags, and not in napari's pan/zoom or
 
 napari's editing tools are mapped onto the store:
 
-* **Add Rectangle.** Each finished rectangle adds one box. A rectangle smaller
-  than one voxel on a displayed axis (a click without drag) is dropped. The
+* **Add Rectangle.** Each finished rectangle adds one box. A click without
+  drag adds nothing, and neither does a rectangle that napari never resized (a
+  drag of a few screen pixels) or one smaller than one voxel on a displayed
+  axis. The
   hidden axes are extended over their full range (when the image shape is
   known) and the box is clamped into the image. The shape napari drew is
   replaced by the rendering of the stored box.

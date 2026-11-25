@@ -39,6 +39,11 @@ Fixed
   ``JSON (*.json)`` file filter is selected even if the filename omits the
   ``.json`` extension. The ``.json`` extension is recognised in any case on
   export and import.
+* A click in napari's *Add Rectangle* mode no longer adds a box. Before, a
+  click added a small box whenever a voxel was drawn smaller than 2.5 screen
+  pixels, which is the usual case for an image that fits the window. A drag of
+  only a few screen pixels, which napari does not turn into a rectangle of the
+  dragged size, now adds nothing either.
 * Fixed and re-enabled the four previously skipped widget live-update and
   settings-routing tests.
 
