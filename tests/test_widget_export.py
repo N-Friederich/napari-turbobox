@@ -125,3 +125,32 @@ def test_import_rejects_non_finite_boxes(widget, tmp_path, monkeypatch, image_sh
     widget._import_boxes()
     assert len(lyr.bounding_boxes) == 0
     assert "Import failed" in widget.status_label.text()
+
+
+def test_export_image_shape_ignores_mismatched_rgb_image(make_napari_viewer):
+    viewer = make_napari_viewer()
+    viewer.add_image(np.zeros((100, 120, 3), dtype=np.uint8), rgb=True, name="rgb2d")
+    lyr = TurboBoxLayer(ndim=3, image_shape=None)
+    viewer.add_layer(lyr)
+    w = BoundingBoxControlWidget(viewer)
+    try:
+        # Must not treat the 2D RGB channel axis (3) as 3D width.
+        assert w._export_image_shape(lyr) is None
+    finally:
+        w.close()
+
+
+def test_export_image_shape_matches_selected_or_topmost_image(make_napari_viewer):
+    viewer = make_napari_viewer()
+    bottom = viewer.add_image(np.zeros((10, 50, 60), dtype=np.uint8), name="bottom")
+    viewer.add_image(np.zeros((20, 100, 120, 3), dtype=np.uint8), rgb=True, name="top_rgb3d")
+    lyr = TurboBoxLayer(ndim=3, image_shape=None)
+    viewer.add_layer(lyr)
+    w = BoundingBoxControlWidget(viewer)
+    try:
+        viewer.layers.selection = {lyr}
+        assert w._export_image_shape(lyr) == (20, 100, 120)
+        viewer.layers.selection = {bottom}
+        assert w._export_image_shape(lyr) == (10, 50, 60)
+    finally:
+        w.close()

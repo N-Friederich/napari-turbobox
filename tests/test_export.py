@@ -160,3 +160,24 @@ def test_export_rejects_non_finite_boxes(bad_val):
         boxes_to_coco(boxes, (10, 100, 200))
     with pytest.raises(ValueError, match="finite"):
         boxes_to_yolo(boxes, (10, 100, 200))
+
+
+@pytest.mark.parametrize("bad_shape", [(100, 200), (4, 10, 100, 200), (10, 0, 200), (0, 100, 200)])
+def test_export_rejects_invalid_image_shape(bad_shape):
+    boxes = np.array([[[2.0, 10.0, 20.0], [4.0, 30.0, 80.0]]], dtype=float)
+    with pytest.raises(ValueError, match="image_shape"):
+        boxes_to_coco(boxes, bad_shape)
+    with pytest.raises(ValueError, match="image_shape"):
+        boxes_to_yolo(boxes, bad_shape)
+
+
+def test_export_negative_only_boxes_without_image_shape():
+    boxes = np.array([[[-5.0, -5.0], [-1.0, -1.0]]], dtype=float)
+    with pytest.warns(UserWarning):
+        coco = boxes_to_coco(boxes, None)
+    assert coco["images"][0]["width"] >= 1 and coco["images"][0]["height"] >= 1
+    with pytest.warns(UserWarning):
+        yolo = boxes_to_yolo(boxes, None)
+    cls, xc, yc, w, h = yolo["image.txt"].strip().split()
+    assert cls == "0"
+    assert all(0.0 <= float(v) <= 1.0 for v in (xc, yc, w, h))

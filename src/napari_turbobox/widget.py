@@ -583,17 +583,33 @@ class BoundingBoxControlWidget(QWidget):
     def _export_image_shape(self, layer) -> tuple[int, ...] | None:
         """Return the image shape that bounds the COCO/YOLO output.
 
-        This is the layer's ``image_shape``, else the first ``layer.ndim`` axes
-        of the first Image layer in the viewer, else None. With None the
-        converters derive H and W from the boxes and warn.
+        This is the layer's ``image_shape``, else the spatial shape of the
+        selected (or topmost) Image layer with matching dimensionality, else
+        None. With None the converters derive H and W from the boxes and warn.
         """
         shape = getattr(layer, "_image_shape", None)
         if shape is not None:
             return tuple(int(s) for s in shape)
         if self.viewer is not None:
-            for lyr in self.viewer.layers:
-                if isinstance(lyr, Image):
-                    return tuple(int(s) for s in lyr.data.shape[: layer.ndim])
+            image = next(
+                (
+                    lyr
+                    for lyr in self.viewer.layers.selection
+                    if isinstance(lyr, Image) and lyr.ndim == layer.ndim
+                ),
+                None,
+            )
+            if image is None:
+                image = next(
+                    (
+                        lyr
+                        for lyr in reversed(self.viewer.layers)
+                        if isinstance(lyr, Image) and lyr.ndim == layer.ndim
+                    ),
+                    None,
+                )
+            if image is not None:
+                return tuple(int(s) for s in image.data.shape[: image.ndim])
         return None
 
     def _export_native(self, boxes: np.ndarray) -> None:

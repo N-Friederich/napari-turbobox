@@ -67,10 +67,16 @@ def _as_minmax(boxes: np.ndarray) -> np.ndarray:
 
 
 def _image_hw(image_shape: Sequence[int] | None, ndim: int) -> tuple[int, int] | None:
-    """Return ``(H, W)``, the last two axes of ``image_shape`` rounded to int, or None."""
+    """Validate ``image_shape`` against ``ndim`` and return ``(H, W)`` rounded to int, or None."""
     if image_shape is None:
         return None
     s = tuple(round(v) for v in image_shape)
+    if len(s) != ndim:
+        raise ValueError(
+            f"image_shape must have {ndim} dimensions for {ndim}D boxes; got {image_shape!r}"
+        )
+    if any(v <= 0 for v in s):
+        raise ValueError(f"image_shape dimensions must be positive; got {image_shape!r}")
     return s[-2], s[-1]
 
 
@@ -129,8 +135,8 @@ def _records(
 
     hw = _image_hw(image_shape, ndim)
     if hw is None:
-        derived_h = int(np.ceil(boxes[:, 1, -2].max())) + 1
-        derived_w = int(np.ceil(boxes[:, 1, -1].max())) + 1
+        derived_h = max(1, int(np.ceil(boxes[:, 1, -2].max())) + 1)
+        derived_w = max(1, int(np.ceil(boxes[:, 1, -1].max())) + 1)
         warnings.warn(
             "No image_shape provided; deriving (H, W) from box extents.",
             UserWarning,
