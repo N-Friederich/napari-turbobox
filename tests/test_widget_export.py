@@ -154,3 +154,19 @@ def test_export_image_shape_matches_selected_or_topmost_image(make_napari_viewer
         assert w._export_image_shape(lyr) == (10, 50, 60)
     finally:
         w.close()
+
+
+def test_export_native_json_filter_without_extension(widget, layer, tmp_path, monkeypatch):
+    out_base = tmp_path / "boxes_no_ext"
+
+    class _JsonFilterDialog:
+        @staticmethod
+        def getSaveFileName(*a, **k):
+            return (str(out_base), "JSON (*.json)")
+
+    monkeypatch.setattr("napari_turbobox.widget.QFileDialog", _JsonFilterDialog)
+    widget._export_native(layer.bounding_boxes)
+    out_json = tmp_path / "boxes_no_ext.json"
+    assert out_json.exists()
+    assert not (tmp_path / "boxes_no_ext.npy").exists()
+    assert np.array(json.loads(out_json.read_text())).shape == (1, 2, 3)

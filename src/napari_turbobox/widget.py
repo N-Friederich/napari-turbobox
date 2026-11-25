@@ -613,19 +613,24 @@ class BoundingBoxControlWidget(QWidget):
         return None
 
     def _export_native(self, boxes: np.ndarray) -> None:
-        """Save the (N, 2, D) array as .npy, or as nested lists if the name ends in .json."""
-        filename, _ = QFileDialog.getSaveFileName(
+        """Save the (N, 2, D) array as .npy, or as nested lists for JSON."""
+        filename, selected_filter = QFileDialog.getSaveFileName(
             self, "Export Bounding Boxes", "", "NumPy Array (*.npy);;JSON (*.json);;All Files (*)"
         )
         if not filename:
             return
-        if filename.endswith(".json"):
+        wants_json = filename.lower().endswith(".json") or (
+            "json" in (selected_filter or "").lower() and not filename.lower().endswith(".npy")
+        )
+        if wants_json:
             import json
 
+            if not filename.lower().endswith(".json"):
+                filename += ".json"
             with open(filename, "w") as f:
                 json.dump(boxes.tolist(), f, indent=2)
         else:
-            if not filename.endswith(".npy"):
+            if not filename.lower().endswith(".npy"):
                 filename += ".npy"
             np.save(filename, boxes)
         self.status_label.setText(f"✅ Exported {boxes.shape[0]} bboxes to {filename}")
