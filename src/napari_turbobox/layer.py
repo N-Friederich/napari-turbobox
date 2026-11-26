@@ -1310,7 +1310,7 @@ class TurboBoxLayer(Shapes):
     def _on_parent_change(self, event) -> None:
         """Rebuild the shapes from the store, unless a sync is running.
 
-        napari does not call this method (checked for 0.6.6, 0.7.0 and 0.9.1);
+        napari does not call this method (checked for 0.6.6, 0.7.0, 0.9.2 and 0.10.0);
         it only runs when called directly.
         """
         if not self._sync_guard and self._bbox_store.data.size > 0:
@@ -1330,9 +1330,12 @@ class TurboBoxLayer(Shapes):
         - ``added`` (Add Rectangle finished): the rectangle becomes one box.
           Its hidden axes are extended (see ``auto_extrude`` and
           ``_expand_hidden_axes``), it is clamped to the image and passed to
-          ``add_boxes``. A click without drag (under 1 on a displayed axis)
-          adds nothing. The shape napari drew is replaced by the drawing of
-          the store.
+          ``add_boxes``. A click adds nothing: napari starts the rectangle
+          at the press as a small square and resizes it only once the drag
+          exceeds its minimum size (a few screen pixels), so a rectangle that
+          was never moved, or that still has about that size, is dropped. So
+          is one under 1 on a displayed axis. The shape napari drew is
+          replaced by the drawing of the store.
         - anything else (for example vertex edits): discarded by redrawing
           from the store.
 
@@ -1357,8 +1360,17 @@ class TurboBoxLayer(Shapes):
                 ]
             elif action == "adding":
                 self._napari_adding = True  # keep napari's new shape until 'added'
+                # Add Rectangle starts with a small square at the press. Remember
+                # its side (data units) and forget the moves of earlier drags, so
+                # that 'added' can tell a click from a drag.
+                self._add_rect_press_size = None
+                if self.mode == "add_rectangle":
+                    self._moving_coordinates = None
+                    radius = getattr(self, "_normalized_vertex_radius", 0.0)
+                    self._add_rect_press_size = float(radius) / 2
             return
         self._napari_adding = False
+        press_size, self._add_rect_press_size = getattr(self, "_add_rect_press_size", None), None
         pending, self._pending_remove = self._pending_remove, None
         if getattr(self, "_just_finished_drag", False):
             # napari's own post-release event of a TurboBox drag: nothing to write.
@@ -1381,8 +1393,14 @@ class TurboBoxLayer(Shapes):
             if bbox is None or self._slice_input is None:
                 return
             disp = list(self._slice_input.displayed)
-            if np.any(bbox[1, disp] - bbox[0, disp] < 1.0):
-                return  # click without drag: no box
+            extent = bbox[1, disp] - bbox[0, disp]
+            if press_size is not None and getattr(self, "_mouse_drag_gen", None):
+                # Drawn with the mouse. A click if napari saw no move, or never
+                # resized its press square (it ignores drags of a few pixels).
+                if self._moving_coordinates is None or np.all(extent <= 1.5 * press_size):
+                    return
+            if np.any(extent < 1.0):
+                return  # under one voxel on a displayed axis: no box
             if self._auto_extrude and self._is_2d_box(bbox):
                 bbox = self._auto_extrude_bbox(bbox)
             bbox = self._expand_hidden_axes(bbox)

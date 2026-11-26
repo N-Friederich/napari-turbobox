@@ -65,8 +65,7 @@ def test_on_shapes_data_changed_with_sync_guard():
     assert layer._bbox_store.data.size == 0
 
 
-@pytest.mark.skip(reason="Qt widgets cause segfault in headless environment")
-def test_widget_layer_settings_routing(mock_viewer):
+def test_widget_layer_settings_routing(qapp, mock_viewer):
     """Verify that BoundingBoxControlWidget routes settings correctly to the active layer."""
     layer = TurboBoxLayer(ndim=3, name="BBoxes")
 
@@ -81,17 +80,24 @@ def test_widget_layer_settings_routing(mock_viewer):
 
     layers = MockLayersList([layer])
     layers.selection = selection
+    layers.events = MagicMock()
     mock_viewer.layers = layers
 
     # Instantiate control widget
     widget = BoundingBoxControlWidget(mock_viewer)
+    try:
+        # Test setting undo and cache limits
+        assert layer.undo_limit == 50  # Default
+        widget._on_undo_limit_changed(25)
+        assert layer.undo_limit == 25
 
-    # Test setting cache limit
-    assert layer.cache_limit == 10000  # Default
-    widget._on_cache_limit_changed(50)
-    assert layer.cache_limit == 50
+        assert layer.cache_limit == 10000  # Default
+        widget._on_cache_limit_changed(500)
+        assert layer.cache_limit == 500
 
-    # Test clearing history
-    layer.clear_undo_history = MagicMock()
-    widget._on_clear_history_clicked()
-    layer.clear_undo_history.assert_called_once()
+        # Test clearing history
+        layer.clear_undo_history = MagicMock()
+        widget._on_clear_history()
+        layer.clear_undo_history.assert_called_once()
+    finally:
+        widget.close()

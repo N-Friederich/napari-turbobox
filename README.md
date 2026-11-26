@@ -93,22 +93,22 @@ readers or writers; images are opened with napari's own readers.
 
 ## Installation
 
-Requirements: Python >= 3.10 and napari >= 0.6.6, < 0.10 with a Qt binding
-(PyQt5, PyQt6 or PySide6). napari-turbobox itself depends only on napari,
+Requirements: Python >= 3.11 and napari >= 0.6.6, < 0.11 with a Qt binding
+(PyQt6 or PySide6). napari-turbobox itself depends only on napari,
 NumPy and qtpy.
 
 ```bash
 pip install "napari-turbobox[all]"   # napari-TurboBox + napari with a Qt binding
 ```
 
-The `all` extra installs `napari[all]>=0.6.6,<0.10`; if napari is
+The `all` extra installs `napari[all]>=0.6.6,<0.11`; if napari is
 already installed, `pip install napari-turbobox` is enough.
 
-`napari[all]` installs a Qt binding (PyQt5 with napari 0.6.6, PyQt6 with
-napari 0.7.0 and 0.9.1) and napari's optional compiled triangulation backend
-(`bermuda`). The napari Shapes layers that napari-TurboBox builds on use that
-backend when it is installed; napari-TurboBox does not require it. Without any
-Qt binding, napari cannot open a viewer.
+`napari[all]` installs a Qt binding (PyQt6 with napari 0.7.0 and newer;
+`napari[all]==0.6.6` pulls PyQt5) and napari's optional compiled triangulation
+backend (`bermuda`). The napari Shapes layers that napari-TurboBox builds on
+use that backend when it is installed; napari-TurboBox does not require it.
+Without any Qt binding, napari cannot open a viewer.
 
 From a checkout of this repository (editable install with the test
 dependencies):
@@ -130,19 +130,18 @@ Tested on macOS with:
 | napari | Python | Qt binding |
 |---|---|---|
 | 0.6.6 | 3.12 | PyQt6 |
-| 0.7.0 | 3.10 | PyQt5, PyQt6 |
 | 0.7.0 | 3.12 | PyQt6 |
-| 0.9.1 | 3.12 | PyQt6 |
+| 0.9.2 | 3.12 | PyQt6 |
+| 0.10.0 | 3.11 | PyQt6 |
+| 0.10.0 | 3.13 | PyQt6, PySide6 |
+| 0.10.0 | 3.14 | PyQt6 |
 
-The full test suite passes in each of these environments (with napari 0.7.0
-and Python 3.10 once per Qt binding). Tests that need the example data or the
+The full test suite passes in each of these environments (with napari 0.10.0
+and Python 3.13 once per Qt binding). Tests that need the example data or the
 optional packages napari-bbox or hypothesis are skipped when these are
-missing, and four older widget tests are always skipped because they crash
-in headless runs. On napari 0.6.6 one test is an expected
-failure: napari's Shapes layer cannot switch a 2D layer back from 3D display
-(see [Good to know](#good-to-know)). PySide6 was last tested with napari 0.7.0
-at commit 1b2ba33 of the private development repository, before the final
-benchmark.
+missing. On napari 0.6.6 one test is an expected failure and one is skipped:
+napari's Shapes layer cannot draw a 2D layer in a 3D viewer or switch it back
+from 3D display (see [Good to know](#good-to-know)).
 
 ## Quick start
 
@@ -382,6 +381,13 @@ image size), the provenance of every run and the commands to reproduce it are
 in [`docs/benchmark.md`](https://github.com/N-Friederich/napari-turbobox/blob/main/docs/benchmark.md). All numbers with their
 confidence intervals are in
 [`paper_results/RESULTS.md`](https://github.com/N-Friederich/napari-turbobox/blob/main/paper_results/RESULTS.md).
+The benchmark numbers above were measured in the final run of 25 September 2026
+on napari 0.7.0, on the code state archived in `paper_results/`. Version 0.1.0
+differs from that state in four functions, as documented in `docs/benchmark.md`
+and `paper_results/environment/README.md`. Version 0.1.1 also changes six
+functions of the import and export code (`export.py`, `widget.py`) and how
+`layer.py` handles a click in *Add Rectangle* mode. The benchmark executes
+none of the changed code. The numbers were not re-measured for 0.1.1.
 
 ## Good to know
 
@@ -433,7 +439,8 @@ confidence intervals are in
 
 If you use napari-TurboBox, please cite it using the metadata in
 `CITATION.cff` (GitHub's "Cite this repository" button reads this file).
-An Application Note on napari-TurboBox is in preparation.
+An Application Note on napari-TurboBox is available as a preprint on arXiv
+([arXiv:2610.22413](https://arxiv.org/abs/2610.22413)).
 
 ## Licence
 

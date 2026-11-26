@@ -606,64 +606,63 @@ class TestBoundaryClamping:
             bbox_layer.add_boxes(boxes)
 
 
-@pytest.mark.skip(reason="Qt widgets cause segfault in headless environment")
 class TestWidgetLiveUpdates:
     """Test that widget updates live when bboxes change."""
 
-    def test_widget_shows_correct_count_after_add(self, bbox_layer):
+    @staticmethod
+    def _mock_viewer_with(layer):
+        class _LayersList(list):
+            pass
+
+        layers = _LayersList([layer])
+        layers.events = Mock()
+        layers.events.inserted = Mock()
+        layers.events.inserted.connect = Mock()
+        layers.events.inserted.disconnect = Mock()
+        layers.events.removed = Mock()
+        layers.events.removed.connect = Mock()
+        layers.events.removed.disconnect = Mock()
+        layers.events.changed = Mock()
+        layers.events.changed.connect = Mock()
+        layers.events.changed.disconnect = Mock()
+
+        mock_viewer = Mock()
+        mock_viewer.layers = layers
+        return mock_viewer
+
+    def test_widget_shows_correct_count_after_add(self, qapp, bbox_layer):
         """Test that widget displays correct bbox count after adding."""
         from napari_turbobox.widget import BoundingBoxControlWidget
 
-        # Create widget with mock viewer
-        mock_viewer = Mock()
-        mock_viewer.layers = Mock()
-        mock_viewer.layers.events = Mock()
-        mock_viewer.layers.events.inserted = Mock()
-        mock_viewer.layers.events.inserted.connect = Mock()
-        mock_viewer.layers.events.removed = Mock()
-        mock_viewer.layers.events.removed.connect = Mock()
-        mock_viewer.layers.events.changed = Mock()
-        mock_viewer.layers.events.changed.connect = Mock()
+        widget = BoundingBoxControlWidget(self._mock_viewer_with(bbox_layer))
+        try:
+            assert widget.bbox_list.count() == 0
 
-        widget = BoundingBoxControlWidget(mock_viewer)
-        widget._watched_layer = bbox_layer
+            # Add boxes; live bboxes event refreshes the list automatically
+            boxes = np.array([[[2, 20, 20], [5, 50, 50]]])
+            bbox_layer.add_boxes(boxes)
 
-        # Add boxes and trigger update
-        boxes = np.array([[[2, 20, 20], [5, 50, 50]]])
-        bbox_layer.add_boxes(boxes)
-        widget._update_bbox_list()
+            assert widget.bbox_list.count() == 1
+        finally:
+            widget.close()
 
-        # Widget should show 1 bbox
-        assert widget.bbox_list.count() == 1
-
-    def test_widget_updates_after_delete(self, bbox_layer_with_boxes):
+    def test_widget_updates_after_delete(self, qapp, bbox_layer_with_boxes):
         """Test that widget updates when bbox is deleted."""
         from napari_turbobox.widget import BoundingBoxControlWidget
 
-        mock_viewer = Mock()
-        mock_viewer.layers = Mock()
-        mock_viewer.layers.events = Mock()
-        mock_viewer.layers.events.inserted = Mock()
-        mock_viewer.layers.events.inserted.connect = Mock()
-        mock_viewer.layers.events.removed = Mock()
-        mock_viewer.layers.events.removed.connect = Mock()
-        mock_viewer.layers.events.changed = Mock()
-        mock_viewer.layers.events.changed.connect = Mock()
+        widget = BoundingBoxControlWidget(self._mock_viewer_with(bbox_layer_with_boxes))
+        try:
+            initial_count = 2
+            assert widget.bbox_list.count() == initial_count
 
-        widget = BoundingBoxControlWidget(mock_viewer)
-        widget._watched_layer = bbox_layer_with_boxes
+            # Delete one bbox
+            new_boxes = np.delete(bbox_layer_with_boxes.bounding_boxes, 0, axis=0)
+            bbox_layer_with_boxes.bounding_boxes = new_boxes
 
-        initial_count = 2
-        widget._update_bbox_list()
-        assert widget.bbox_list.count() == initial_count
-
-        # Delete one bbox
-        new_boxes = np.delete(bbox_layer_with_boxes.bounding_boxes, 0, axis=0)
-        bbox_layer_with_boxes.bounding_boxes = new_boxes
-        widget._update_bbox_list()
-
-        # Should have one less
-        assert widget.bbox_list.count() == initial_count - 1
+            # Should have one less
+            assert widget.bbox_list.count() == initial_count - 1
+        finally:
+            widget.close()
 
     def test_bbox_event_fires_on_change(self, bbox_layer):
         """Test that layer fires bboxes event when modified."""

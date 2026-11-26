@@ -59,16 +59,24 @@ def _as_minmax(boxes: np.ndarray) -> np.ndarray:
         return arr.reshape(0, 2, d)
     if arr.ndim != 3 or arr.shape[1] != 2:
         raise ValueError(f"boxes must have shape (N, 2, D); got {arr.shape}")
+    if not np.all(np.isfinite(arr)):
+        raise ValueError("boxes must contain only finite coordinates (no NaN or inf)")
     mins = np.minimum(arr[:, 0], arr[:, 1])
     maxs = np.maximum(arr[:, 0], arr[:, 1])
     return np.stack([mins, maxs], axis=1)
 
 
 def _image_hw(image_shape: Sequence[int] | None, ndim: int) -> tuple[int, int] | None:
-    """Return ``(H, W)``, the last two axes of ``image_shape`` rounded to int, or None."""
+    """Validate ``image_shape`` against ``ndim`` and return ``(H, W)`` rounded to int, or None."""
     if image_shape is None:
         return None
     s = tuple(round(v) for v in image_shape)
+    if len(s) != ndim:
+        raise ValueError(
+            f"image_shape must have {ndim} dimensions for {ndim}D boxes; got {image_shape!r}"
+        )
+    if any(v <= 0 for v in s):
+        raise ValueError(f"image_shape dimensions must be positive; got {image_shape!r}")
     return s[-2], s[-1]
 
 
@@ -127,8 +135,8 @@ def _records(
 
     hw = _image_hw(image_shape, ndim)
     if hw is None:
-        derived_h = int(np.ceil(boxes[:, 1, -2].max())) + 1
-        derived_w = int(np.ceil(boxes[:, 1, -1].max())) + 1
+        derived_h = max(1, int(np.ceil(boxes[:, 1, -2].max())) + 1)
+        derived_w = max(1, int(np.ceil(boxes[:, 1, -1].max())) + 1)
         warnings.warn(
             "No image_shape provided; deriving (H, W) from box extents.",
             UserWarning,
@@ -186,7 +194,8 @@ def boxes_to_coco(
         ``(N, 2, D)`` boxes with D = 2 or 3, min and max corner in napari
         ``(z, y, x)`` or ``(y, x)`` order.
     image_shape : sequence of int or None
-        Shape ``(Z, Y, X)`` or ``(Y, X)`` of the annotated image. Gives the
+        Shape ``(Z, Y, X)`` for 3D boxes or ``(Y, X)`` for 2D boxes, without
+        channel axis: one positive entry per box axis. Gives the
         size of the ``images`` entries, the clamping bounds and, in 3D, the
         slice range. If None, H and W are derived from the box extents (with
         a warning).
@@ -210,8 +219,10 @@ def boxes_to_coco(
     Raises
     ------
     ValueError
-        For an unknown ``mode``, boxes with D other than 2 or 3, or
-        ``category_ids`` whose length differs from N.
+        For an unknown ``mode``, boxes with D other than 2 or 3, boxes with
+        ``NaN`` or infinite coordinates, an ``image_shape`` that does not
+        have exactly D positive entries, or ``category_ids`` whose length
+        differs from N.
     """
     records, _h, _w, ndim = _records(boxes, image_shape, mode, category_ids)
 

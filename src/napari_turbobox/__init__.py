@@ -3,7 +3,7 @@ napari-TurboBox
 ===============
 
 Bounding-box annotation in napari, synchronized across several viewers. An
-npe2 plugin for napari 0.6.6 up to (not including) 0.10 on Python 3.10 or
+npe2 plugin for napari 0.6.6 up to (not including) 0.11 on Python 3.11 or
 later. Boxes are axis-aligned and have 2 or 3 spatial axes.
 
 Features

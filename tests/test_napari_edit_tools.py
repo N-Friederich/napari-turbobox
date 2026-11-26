@@ -197,3 +197,60 @@ def test_read_only_view_cannot_delete(two_views):
         sub.selected_data = {0}
         sub.remove_selected()
     assert _rows(main.bounding_boxes) == _rows(before)
+
+
+ZOOMS = [0.5, 1.0, 2.4, 2.6, 10.0]
+
+
+@pytest.mark.parametrize("zoom", ZOOMS)
+def test_add_rectangle_click_without_drag_adds_nothing(two_views, zoom):
+    """A press and release without a move adds no box, whatever the zoom.
+
+    napari starts every rectangle at the press as a square 2.5 screen pixels
+    wide. Below zoom 2.5 that is more than one voxel, so the extent check alone
+    kept it as a box.
+    """
+    main = two_views[0]
+    main.mode = Mode.ADD_RECTANGLE
+    main.scale_factor = 1.0 / zoom  # data units per screen pixel, as the canvas sets it
+    _draw(main, (Z, 40, 40), (Z, 40, 40), n_moves=1)
+    assert len(main.bounding_boxes) == 0
+    assert main.nshapes == 0  # napari's press rectangle is not left on screen
+
+
+@pytest.mark.parametrize("zoom", ZOOMS)
+def test_add_rectangle_drag_adds_its_box_at_any_zoom(two_views, zoom):
+    main = two_views[0]
+    main.mode = Mode.ADD_RECTANGLE
+    main.scale_factor = 1.0 / zoom
+    _draw(main, (Z, 20, 20), (Z, 60, 70))
+    boxes = np.asarray(main.bounding_boxes)
+    assert len(boxes) == 1
+    assert np.allclose(boxes[0][:, 1:], [[20, 20], [60, 70]], atol=1e-3)
+
+
+def test_add_rectangle_click_after_a_drag_adds_nothing(two_views):
+    """The click check must not be fooled by the moves of the rectangle drawn before."""
+    main = two_views[0]
+    main.mode = Mode.ADD_RECTANGLE
+    main.scale_factor = 1.0
+    _draw(main, (Z, 20, 20), (Z, 60, 70))
+    _draw(main, (Z, 80, 80), (Z, 80, 80), n_moves=1)
+    assert len(main.bounding_boxes) == 1
+
+
+@pytest.mark.parametrize("zoom", ZOOMS)
+@pytest.mark.parametrize("pixels", [1, 2, 4])
+def test_add_rectangle_click_with_pointer_jitter_adds_nothing(two_views, zoom, pixels):
+    """A click during which the pointer slips by a few pixels is still a click.
+
+    napari does not resize its press square for a drag below its minimum size
+    (about 7 screen pixels), so such a rectangle is not what the user dragged.
+    """
+    main = two_views[0]
+    main.mode = Mode.ADD_RECTANGLE
+    main.scale_factor = 1.0 / zoom
+    slip = pixels / zoom
+    _draw(main, (Z, 40, 40), (Z, 40 + slip, 40 + slip), n_moves=pixels + 1)
+    assert len(main.bounding_boxes) == 0
+    assert main.nshapes == 0
