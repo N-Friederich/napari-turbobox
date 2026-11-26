@@ -6,8 +6,8 @@ message: >-
   file.
 type: software
 title: napari-TurboBox
-version: 0.1.0
-date-released: 2026-10-01
+version: 0.1.1
+date-released: 2026-11-26
 license: Apache-2.0
 repository-code: "https://github.com/N-Friederich/napari-turbobox"
 url: "https://github.com/N-Friederich/napari-turbobox"

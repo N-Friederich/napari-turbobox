@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.0/docs/logo-256.png" width="128" alt="napari-TurboBox logo: a see-through 3D box with three speed lines">
+  <img src="https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.1/docs/logo-256.png" width="128" alt="napari-TurboBox logo: a see-through 3D box with three speed lines">
 </p>
 
 # napari-TurboBox
@@ -24,9 +24,9 @@ boxes can be exported as per-slice COCO or YOLO annotations, for example to
 train 2D detectors or to use as per-slice box prompts, or in a native
 NumPy/JSON format.
 
-![Four napari viewers of one C. elegans volume share one box store: XY is editable, XZ, YZ and 3D are read-only. A box that has slipped off its nucleus is dragged back onto it in XY; XZ follows every move, YZ shows the box when it arrives, and the 3D view follows at the release. Its corner is pulled out until the box fits the nucleus. The XY view steps through z and draws only the boxes on each slice. Cmd+Z undoes the fit in every view and Cmd+Shift+Z redoes it. The 3D view is turned.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.0/docs/demo.gif)
+![Four napari viewers of one C. elegans volume share one box store: XY is editable, XZ, YZ and 3D are read-only. A box that has slipped off its nucleus is dragged back onto it in XY; XZ follows every move, YZ shows the box when it arrives, and the 3D view follows at the release. Its corner is pulled out until the box fits the nucleus. The XY view steps through z and draws only the boxes on each slice. Cmd+Z undoes the fit in every view and Cmd+Shift+Z redoes it. The 3D view is turned.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.1/docs/demo.gif)
 
-A real napari session, recorded by [`docs/make_demo.py`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/docs/make_demo.py):
+A real napari session, recorded by [`docs/make_demo.py`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/docs/make_demo.py):
 every edit is a Qt mouse or key event on the XY canvas, and the 3D view is
 turned by a mouse drag on its canvas. Before it starts, the script sets the
 cameras and slices and moves one box off its nucleus and shrinks it. The
@@ -36,7 +36,7 @@ al. (2022), doi:[10.5281/zenodo.5942575](https://doi.org/10.5281/zenodo.5942575)
 [CC BY 4.0](https://creativecommons.org/licenses/by/4.0/) (see [Application example](#application-example-c-elegans-nuclei)).
 
 Distribution name `napari-turbobox`, import name `napari_turbobox`, licence Apache 2.0.
-Architecture and API documentation: [`docs/`](https://github.com/N-Friederich/napari-turbobox/tree/v0.1.0/docs) (Sphinx sources).
+Architecture and API documentation: [`docs/`](https://github.com/N-Friederich/napari-turbobox/tree/v0.1.1/docs) (Sphinx sources).
 
 ## Features
 
@@ -174,7 +174,7 @@ that is one slice thick along the hidden axes.
 The panel can also be opened from Python:
 `viewer.window.add_plugin_dock_widget("napari-turbobox", "BBox Control Panel")`.
 
-![The XY viewer window: napari's layer controls and layer list on the left, the canvas with the selected box in the middle, and the BBox Control Panel on the right with the target layer, the box count, the quick-create buttons, the box list, import and export, and the advanced settings.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.0/docs/screenshot-panel.png)
+![The XY viewer window: napari's layer controls and layer list on the left, the canvas with the selected box in the middle, and the BBox Control Panel on the right with the target layer, the box count, the quick-create buttons, the box list, import and export, and the advanced settings.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.1/docs/screenshot-panel.png)
 
 The panel manages the box layers of one viewer. Synchronized multi-view layouts
 are set up with the Python API below.
@@ -276,7 +276,7 @@ formats, so 3D boxes are projected (`napari_turbobox/export.py`):
 
 ## Tutorials
 
-The Jupyter notebooks in [`tutorials/`](https://github.com/N-Friederich/napari-turbobox/tree/v0.1.0/tutorials) run as they are: each
+The Jupyter notebooks in [`tutorials/`](https://github.com/N-Friederich/napari-turbobox/tree/v0.1.1/tutorials) run as they are: each
 application notebook downloads one public volume (verified against its
 published checksum), derives one box per object, loads the boxes into the
 synchronized four-viewer layout, replays a mouse drag, and exports COCO and
@@ -289,15 +289,15 @@ jupyter lab tutorials/
 
 | Notebook | Modality, data | Boxes |
 |---|---|---:|
-| [`00_napari_turbobox_api`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/tutorials/00_napari_turbobox_api.ipynb) | the Python API on a synthetic volume | – |
-| [`01_confocal_celegans_nuclei`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/tutorials/01_confocal_celegans_nuclei.ipynb) | confocal, *C. elegans* nuclei (Zenodo 5942575) | 555 |
-| [`02_electron_microscopy_nucmm_z`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/tutorials/02_electron_microscopy_nucmm_z.ipynb) | serial-section EM, zebrafish nuclei (NucMM-Z) | 606 |
-| [`03_micro_ct_nucmm_m`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/tutorials/03_micro_ct_nucmm_m.ipynb) | X-ray micro-CT, mouse cortex nuclei (NucMM-M) | 282 |
-| [`04_light_sheet_cellseg3d_mouse_brain`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/tutorials/04_light_sheet_cellseg3d_mouse_brain.ipynb) | light-sheet, cleared mouse brain nuclei (CellSeg3D) | 631 |
-| [`05_instant_sim_polii_clusters`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.0/tutorials/05_instant_sim_polii_clusters.ipynb) | instant-SIM, nuclei and RNA Pol II clusters (Hajiabadi et al. 2022), boxes from a threshold segmentation | 38 |
+| [`00_napari_turbobox_api`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/tutorials/00_napari_turbobox_api.ipynb) | the Python API on a synthetic volume | – |
+| [`01_confocal_celegans_nuclei`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/tutorials/01_confocal_celegans_nuclei.ipynb) | confocal, *C. elegans* nuclei (Zenodo 5942575) | 555 |
+| [`02_electron_microscopy_nucmm_z`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/tutorials/02_electron_microscopy_nucmm_z.ipynb) | serial-section EM, zebrafish nuclei (NucMM-Z) | 606 |
+| [`03_micro_ct_nucmm_m`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/tutorials/03_micro_ct_nucmm_m.ipynb) | X-ray micro-CT, mouse cortex nuclei (NucMM-M) | 282 |
+| [`04_light_sheet_cellseg3d_mouse_brain`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/tutorials/04_light_sheet_cellseg3d_mouse_brain.ipynb) | light-sheet, cleared mouse brain nuclei (CellSeg3D) | 631 |
+| [`05_instant_sim_polii_clusters`](https://github.com/N-Friederich/napari-turbobox/blob/v0.1.1/tutorials/05_instant_sim_polii_clusters.ipynb) | instant-SIM, nuclei and RNA Pol II clusters (Hajiabadi et al. 2022), boxes from a threshold segmentation | 38 |
 
 Each notebook's counts and a screenshot of the four views are in
-[`tutorials/results/`](https://github.com/N-Friederich/napari-turbobox/tree/v0.1.0/tutorials/results).
+[`tutorials/results/`](https://github.com/N-Friederich/napari-turbobox/tree/v0.1.1/tutorials/results).
 
 ## Application example: C. elegans nuclei
 
@@ -346,7 +346,7 @@ The four views of this volume with all 555 boxes, taken at the end of the demo
 recording (the cyan outline marks the box that was dragged onto its nucleus
 and fitted to it there):
 
-![XY, XZ and YZ views of a stretch of the C. elegans larva with the boxes drawn on each view's slice, and the 3D view with every box as a wireframe.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.0/docs/screenshot-views.png)
+![XY, XZ and YZ views of a stretch of the C. elegans larva with the boxes drawn on each view's slice, and the 3D view with every box as a wireframe.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.1/docs/screenshot-views.png)
 
 ## Generic workflow: from instance labels to boxes
 
@@ -374,7 +374,7 @@ drawn during the measurement.
 napari-TurboBox stays within the 33 ms budget (30 Hz) up to the largest tested
 count of 10,000 boxes, napari-bbox up to about 1,000.
 
-![Figure 3 of the Application Note: update time versus number of boxes and views, memory, speed-up, distributions and image size.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.0/paper_results/main/Figure3_performance.png)
+![Figure 3 of the Application Note: update time versus number of boxes and views, memory, speed-up, distributions and image size.](https://raw.githubusercontent.com/N-Friederich/napari-turbobox/v0.1.1/paper_results/main/Figure3_performance.png)
 
 The full protocol, the controls (idle waiting, full reassignment, memory and
 image size), the provenance of every run and the commands to reproduce it are
